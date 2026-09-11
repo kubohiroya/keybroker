@@ -56,7 +56,7 @@ export class CandyHouseProvider implements CapabilityProvider {
         const input = requireRecord(request.input);
         return providerRequest(() =>
           client.getHistory(
-            boundedInteger(input.page, "page", 1, 10_000, 1),
+            boundedInteger(input.page, "page", 0, 10_000, 0),
             boundedInteger(input.length, "length", 1, 100, 20),
           ),
         );

@@ -93,4 +93,24 @@ describe("relay app", () => {
     });
     expect(response.status).toBe(403);
   });
+
+  it("answers the Relay authorization preflight for the TurboWarp sandbox", async () => {
+    const { app } = fixture();
+    const response = await app.request(
+      "http://127.0.0.1/v1/candyhouse/devices/front-door/status",
+      {
+        method: "OPTIONS",
+        headers: {
+          origin: "null",
+          "access-control-request-method": "GET",
+          "access-control-request-headers": "authorization",
+        },
+      },
+    );
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("null");
+    expect(response.headers.get("access-control-allow-headers")).toContain(
+      "Authorization",
+    );
+  });
 });
