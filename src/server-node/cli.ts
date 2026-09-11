@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   }
 
   const config = await loadRelayConfig(resolve(configPath));
-  const running = startRelay(config);
+  const running = await startRelay(config);
   process.stdout.write(
     [
       `Capability Proxy listening on http://127.0.0.1:${config.server.port}`,

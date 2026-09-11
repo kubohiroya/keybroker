@@ -15,7 +15,7 @@ export interface RunningRelay {
   server: ServerType;
 }
 
-export function startRelay(config: RelayConfig): RunningRelay {
+export async function startRelay(config: RelayConfig): Promise<RunningRelay> {
   const capabilities = [CANDYHOUSE_STATUS, CANDYHOUSE_HISTORY];
   if (config.server.commandsEnabled) capabilities.push(CANDYHOUSE_COMMAND);
 
@@ -36,5 +36,21 @@ export function startRelay(config: RelayConfig): RunningRelay {
     hostname: "127.0.0.1",
     port: config.server.port,
   });
+  await waitUntilListening(server);
   return { pairingCode: pairing.pairingCode, server };
+}
+
+async function waitUntilListening(server: ServerType): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const handleListening = (): void => {
+      server.off("error", handleError);
+      resolve();
+    };
+    const handleError = (error: Error): void => {
+      server.off("listening", handleListening);
+      reject(error);
+    };
+    server.once("listening", handleListening);
+    server.once("error", handleError);
+  });
 }

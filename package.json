@@ -18,6 +18,7 @@
   },
   "files": [
     "dist/",
+    "config.example.json",
     "README.md",
     "README.ja.md",
     "LICENSE"
@@ -32,7 +33,7 @@
   },
   "scripts": {
     "dev": "tsx src/server-node/cli.ts",
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/server-node/cli.js",
+    "build": "tsc -p tsconfig.build.json && node scripts/set-cli-executable.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests",
     "format": "prettier --check .",

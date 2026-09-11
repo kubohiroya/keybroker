@@ -16,6 +16,7 @@ export interface RelayAppOptions extends RelayServerOptions {
 
 const DEFAULT_ALLOWED_ORIGINS = ["null", "https://turbowarp.org"];
 const DEFAULT_ALLOWED_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
+const MAX_JSON_BODY_BYTES = 4096;
 
 export function createRelayApp(options: RelayAppOptions): Hono {
   const app = new Hono();
@@ -191,9 +192,10 @@ function isAllowedHost(
 async function readJsonObject(
   request: Request,
 ): Promise<Record<string, unknown>> {
+  const text = await readLimitedText(request);
   let value: unknown;
   try {
-    value = await request.json();
+    value = JSON.parse(text) as unknown;
   } catch {
     throw new CapabilityError(
       400,
@@ -210,23 +212,8 @@ async function readJsonObject(
 async function readOptionalJsonObject(
   request: Request,
 ): Promise<Record<string, unknown>> {
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > 4096) {
-    throw new CapabilityError(
-      413,
-      "request_too_large",
-      "Request body is too large.",
-    );
-  }
-  const text = await request.text();
+  const text = await readLimitedText(request);
   if (text.length === 0) return {};
-  if (text.length > 4096) {
-    throw new CapabilityError(
-      413,
-      "request_too_large",
-      "Request body is too large.",
-    );
-  }
   let value: unknown;
   try {
     value = JSON.parse(text) as unknown;
@@ -241,4 +228,36 @@ async function readOptionalJsonObject(
     throw new CapabilityError(400, "invalid_input", "Expected a JSON object.");
   }
   return value as Record<string, unknown>;
+}
+
+async function readLimitedText(request: Request): Promise<string> {
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BODY_BYTES) {
+    throw new CapabilityError(
+      413,
+      "request_too_large",
+      "Request body is too large.",
+    );
+  }
+
+  if (request.body === null) return "";
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let text = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytesRead += value.byteLength;
+    if (bytesRead > MAX_JSON_BODY_BYTES) {
+      await reader.cancel();
+      throw new CapabilityError(
+        413,
+        "request_too_large",
+        "Request body is too large.",
+      );
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
 }

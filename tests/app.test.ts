@@ -71,6 +71,23 @@ describe("relay app", () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
+  it("rejects an oversized unauthenticated pairing body", async () => {
+    const { app } = fixture();
+    const response = await app.request("http://127.0.0.1/v1/pair", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "null" },
+      body: JSON.stringify({ code: "1".repeat(4096) }),
+    });
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "request_too_large",
+        message: "Request body is too large.",
+      },
+    });
+  });
+
   it("denies command capability when commands are disabled", async () => {
     const { app, execute } = fixture();
     const token = await pair(app);
