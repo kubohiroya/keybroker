@@ -1,0 +1,18 @@
+{
+  "server": {
+    "port": 8787,
+    "commandsEnabled": false,
+    "allowedOrigins": ["null", "https://turbowarp.org"]
+  },
+  "providers": {
+    "candyhouse": {
+      "devices": {
+        "front-door": {
+          "apiKey": "replace-with-api-key",
+          "uuid": "00000000-0000-0000-0000-000000000000",
+          "secretKey": "00000000000000000000000000000000"
+        }
+      }
+    }
+  }
+}
