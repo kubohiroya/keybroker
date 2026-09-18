@@ -24,6 +24,7 @@ async function main(): Promise<void> {
       `Capability Proxy listening on http://127.0.0.1:${config.server.port}`,
       `Pairing code: ${running.pairingCode}`,
       "The pairing code expires after five minutes and can be used once.",
+      `Providers: ${Object.keys(config.providers).join(", ")}`,
       `Commands: ${config.server.commandsEnabled ? "enabled" : "disabled"}`,
       "",
     ].join("\n"),

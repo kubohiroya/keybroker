@@ -8,6 +8,10 @@ import {
   CANDYHOUSE_HISTORY,
   CANDYHOUSE_STATUS,
 } from "../providers/candyhouse/provider.js";
+import {
+  OPENAI_REALTIME_CLIENT_SECRET,
+  OPENAI_REALTIME_RESOURCE,
+} from "../providers/openai/provider.js";
 
 export interface RelayAppOptions extends RelayServerOptions {
   registry: CapabilityRegistry;
@@ -17,6 +21,7 @@ export interface RelayAppOptions extends RelayServerOptions {
 const DEFAULT_ALLOWED_ORIGINS = ["null", "https://turbowarp.org"];
 const DEFAULT_ALLOWED_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
 const MAX_JSON_BODY_BYTES = 4096;
+const MAX_OPENAI_REALTIME_BODY_BYTES = 65_536;
 
 export function createRelayApp(options: RelayAppOptions): Hono {
   const app = new Hono();
@@ -135,6 +140,28 @@ export function createRelayApp(options: RelayAppOptions): Hono {
     },
   );
 
+  app.post("/v1/openai/realtime/client-secrets", async (context) => {
+    const principal = authenticate(
+      context.req.header("authorization"),
+      options.pairing,
+    );
+    const body = await readJsonObject(
+      context.req.raw,
+      MAX_OPENAI_REALTIME_BODY_BYTES,
+    );
+    const data = await options.registry.execute(
+      "openai",
+      {
+        capability: OPENAI_REALTIME_CLIENT_SECRET,
+        resource: OPENAI_REALTIME_RESOURCE,
+        input: body,
+      },
+      principal,
+    );
+    context.header("Cache-Control", "no-store");
+    return context.json({ data });
+  });
+
   app.notFound((context) =>
     context.json(
       { error: { code: "not_found", message: "Route not found." } },
@@ -191,8 +218,9 @@ function isAllowedHost(
 
 async function readJsonObject(
   request: Request,
+  maximumBytes = MAX_JSON_BODY_BYTES,
 ): Promise<Record<string, unknown>> {
-  const text = await readLimitedText(request);
+  const text = await readLimitedText(request, maximumBytes);
   let value: unknown;
   try {
     value = JSON.parse(text) as unknown;
@@ -230,9 +258,12 @@ async function readOptionalJsonObject(
   return value as Record<string, unknown>;
 }
 
-async function readLimitedText(request: Request): Promise<string> {
+async function readLimitedText(
+  request: Request,
+  maximumBytes = MAX_JSON_BODY_BYTES,
+): Promise<string> {
   const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BODY_BYTES) {
+  if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
     throw new CapabilityError(
       413,
       "request_too_large",
@@ -249,7 +280,7 @@ async function readLimitedText(request: Request): Promise<string> {
     const { done, value } = await reader.read();
     if (done) break;
     bytesRead += value.byteLength;
-    if (bytesRead > MAX_JSON_BODY_BYTES) {
+    if (bytesRead > maximumBytes) {
       await reader.cancel();
       throw new CapabilityError(
         413,
