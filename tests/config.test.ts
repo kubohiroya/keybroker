@@ -50,6 +50,7 @@ describe("parseRelayConfig providers.openai", () => {
     expect(config.providers.openai).toEqual({
       apiKey: "sk-from-environment",
       model: "gpt-realtime-2.1",
+      allowedModels: ["gpt-realtime-2.1"],
       clientSecretTtlSeconds: 60,
     });
   });
@@ -73,6 +74,7 @@ describe("parseRelayConfig providers.openai", () => {
     expect(config.providers.openai).toEqual({
       apiKey: "sk-inline",
       model: "gpt-realtime-custom",
+      allowedModels: ["gpt-realtime-custom"],
       allowedVoices: ["marin", "cedar"],
       clientSecretTtlSeconds: 600,
     });
@@ -160,6 +162,77 @@ describe("parseRelayConfig providers.openai", () => {
       /allowedVoices/u,
     );
     expect(parse({ apiKey: "sk", apikey: "typo" })).toThrow(/unsupported/u);
+  });
+
+  it("accepts allowedModels that include the default model", () => {
+    const config = parseRelayConfig(
+      {
+        providers: {
+          openai: {
+            apiKey: "sk",
+            model: "gpt-realtime-2.1-mini",
+            allowedModels: ["gpt-realtime-2.1-mini", "gpt-realtime-2.1"],
+          },
+        },
+      },
+      {},
+    );
+    expect(config.providers.openai?.model).toBe("gpt-realtime-2.1-mini");
+    expect(config.providers.openai?.allowedModels).toEqual([
+      "gpt-realtime-2.1-mini",
+      "gpt-realtime-2.1",
+    ]);
+  });
+
+  it("defaults allowedModels to the default model when omitted", () => {
+    const config = parseRelayConfig(
+      {
+        providers: { openai: { apiKey: "sk", model: "gpt-realtime-2.1-mini" } },
+      },
+      {},
+    );
+    expect(config.providers.openai?.allowedModels).toEqual([
+      "gpt-realtime-2.1-mini",
+    ]);
+  });
+
+  it("validates allowedModels", () => {
+    const parse = (openai: Record<string, unknown>) => () =>
+      parseRelayConfig({ providers: { openai } }, {});
+    expect(
+      parse({
+        apiKey: "sk",
+        model: "gpt-realtime-2.1",
+        allowedModels: ["gpt-realtime-2.1-mini"],
+      }),
+    ).toThrow(/model \(gpt-realtime-2\.1\) must be listed in .*allowedModels/u);
+    expect(
+      parse({ apiKey: "sk", allowedModels: ["gpt-realtime-2.1-mini"] }),
+    ).toThrow(/must be listed/u);
+    expect(
+      parse({
+        apiKey: "sk",
+        allowedModels: ["gpt-realtime-2.1", "gpt-realtime-2.1"],
+      }),
+    ).toThrow(/duplicates/u);
+    expect(parse({ apiKey: "sk", allowedModels: [] })).toThrow(
+      /allowedModels/u,
+    );
+    expect(parse({ apiKey: "sk", allowedModels: "gpt-realtime-2.1" })).toThrow(
+      /allowedModels/u,
+    );
+    expect(
+      parse({ apiKey: "sk", allowedModels: ["gpt-realtime-2.1", "bad model"] }),
+    ).toThrow(/allowedModels/u);
+    expect(
+      parse({ apiKey: "sk", allowedModels: ["gpt-realtime-2.1", 1] }),
+    ).toThrow(/allowedModels/u);
+    expect(
+      parse({
+        apiKey: "sk",
+        allowedModels: ["gpt-realtime-2.1", "a".repeat(129)],
+      }),
+    ).toThrow(/allowedModels/u);
   });
 
   it("never includes the API key in validation errors", () => {

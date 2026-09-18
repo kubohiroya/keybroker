@@ -73,7 +73,8 @@ export OPENAI_API_KEY='sk-...'
   "providers": {
     "openai": {
       "apiKeyEnv": "OPENAI_API_KEY",
-      "model": "gpt-realtime-2.1",
+      "model": "gpt-realtime-2.1-mini",
+      "allowedModels": ["gpt-realtime-2.1-mini", "gpt-realtime-2.1"],
       "allowedVoices": ["alloy", "marin", "cedar"],
       "clientSecretTtlSeconds": 60
     }
@@ -85,11 +86,14 @@ export OPENAI_API_KEY='sk-...'
 | ------------------------ | ---- | -------------------- | --------------------------------------------------------------------------------- |
 | `apiKeyEnv`              | ※    | -                    | APIキーを保持する環境変数名。推奨。起動時に未設定または空ならエラーで終了します。 |
 | `apiKey`                 | ※    | -                    | APIキーを直接記述。設定ファイルのmode `0600`が前提です。                          |
-| `model`                  |      | `"gpt-realtime-2.1"` | 発行するセッションのモデル。クライアントからは変更できません。                    |
+| `model`                  |      | `"gpt-realtime-2.1"` | 既定モデル。リクエストで`session.model`を省略したときに使います。                 |
+| `allowedModels`          |      | `[model]`            | クライアントが`session.model`で選べるモデルの一覧。`model`を含む必要があります。  |
 | `allowedVoices`          |      | 制限なし             | 指定した場合、リクエストの`voice`はこの一覧に含まれている必要があります。         |
 | `clientSecretTtlSeconds` |      | `60`                 | エフェメラルキーの有効期間(秒)。10〜600の整数。                                   |
 
 ※ `apiKeyEnv`と`apiKey`はどちらか一方だけを指定します。両方または両方なしは起動エラーです。未知のキーも起動エラーになります。APIキーの値はログやエラーメッセージに出力しません。
+
+`allowedModels`は空でない配列で、各要素は`^[A-Za-z0-9._:-]{1,128}$`に一致し重複不可です。`model`が一覧に含まれていない場合は起動エラーです。省略時は`[model]`となり、クライアントは既定モデルしか使えません。どのモデルを許可するかで運用者が費用を制御できます。`gpt-realtime-2.1-mini`は`gpt-realtime-2.1`より安価なため、上の例ではminiを既定にし、通常版は明示的に要求された場合だけ使えるようにしています。
 
 ## 起動とペアリング
 
@@ -133,6 +137,7 @@ POST /v1/openai/realtime/client-secrets
 ```json
 {
   "session": {
+    "model": "gpt-realtime-2.1",
     "instructions": "16384文字以下",
     "voice": "marin",
     "outputModalities": ["audio"],
@@ -148,10 +153,11 @@ POST /v1/openai/realtime/client-secrets
 }
 ```
 
+- `model`: `allowedModels`に含まれるモデル名。省略時は設定の`model`を使います。一覧にない場合は400 `invalid_input`(メッセージは`session.model is not allowed by the relay configuration.`で、許可一覧は返しません。`allowedVoices`と同じ扱いです)。
 - `voice`: `^[a-z0-9_-]{1,32}$`。`allowedVoices`設定時はその一覧に含まれること。
 - `outputModalities`: `["audio"]`または`["text"]`のみ。
 - `tools`: 最大32件。`type`は`"function"`、`name`は`^[A-Za-z0-9_-]{1,64}$`で一意、`description`と`parameters`は任意。`parameters`は`type: "object"`を持つJSONオブジェクト。toolsを1件以上指定した場合だけ`tool_choice: "auto"`を付けて送信します。
-- モデルとTTLは設定値で固定され、クライアントからは指定できません。
+- TTLは設定値で固定され、クライアントからは指定できません。
 
 成功時(200、`Cache-Control: no-store`):
 
@@ -165,7 +171,7 @@ POST /v1/openai/realtime/client-secrets
 }
 ```
 
-`expiresAt`はUnixエポックのミリ秒です。ブラウザはこの`value`を使ってOpenAI Realtime APIへ直接接続します。
+`data.model`は実際に発行に使ったモデルです。`expiresAt`はUnixエポックのミリ秒です。ブラウザはこの`value`を使ってOpenAI Realtime APIへ直接接続します。
 
 | ステータス | `code`               | 条件                                                                        |
 | ---------- | -------------------- | --------------------------------------------------------------------------- |

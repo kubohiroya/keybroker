@@ -162,7 +162,11 @@ describe("OpenAIProvider validation", () => {
     ["non-object body", []],
     ["unknown root key", { session: {}, model: "gpt-4o" }],
     ["non-object session", { session: "x" }],
-    ["unknown session key", { session: { model: "other" } }],
+    ["unknown session key", { session: { temperature: 0.5 } }],
+    ["non-string model", { session: { model: 1 } }],
+    ["empty model", { session: { model: "" } }],
+    ["malformed model", { session: { model: "bad model" } }],
+    ["disallowed model", { session: { model: "gpt-realtime-2.1-mini" } }],
     ["non-string instructions", { session: { instructions: 1 } }],
     [
       "too long instructions",
@@ -272,6 +276,68 @@ describe("OpenAIProvider validation", () => {
       },
     });
     expect(fetcher).toHaveBeenCalledOnce();
+  });
+});
+
+describe("OpenAIProvider model selection", () => {
+  const models = {
+    model: "gpt-realtime-2.1-mini",
+    allowedModels: ["gpt-realtime-2.1-mini", "gpt-realtime-2.1"],
+  };
+
+  it("uses the requested allowed model upstream and reports it", async () => {
+    const { fetcher, execute } = setup(models);
+    await expect(
+      execute({ session: { model: "gpt-realtime-2.1" } }),
+    ).resolves.toEqual({
+      value: "ek_abc123",
+      expiresAt: 1_756_310_470_000,
+      model: "gpt-realtime-2.1",
+    });
+    expect(sentBody(fetcher)).toEqual({
+      expires_after: { anchor: "created_at", seconds: 60 },
+      session: { type: "realtime", model: "gpt-realtime-2.1" },
+    });
+  });
+
+  it("falls back to the default model when none is requested", async () => {
+    const { fetcher, execute } = setup(models);
+    await expect(execute({ session: {} })).resolves.toMatchObject({
+      model: "gpt-realtime-2.1-mini",
+    });
+    expect(sentBody(fetcher)).toMatchObject({
+      session: { model: "gpt-realtime-2.1-mini" },
+    });
+  });
+
+  it("rejects a model outside allowedModels without calling upstream", async () => {
+    const { fetcher, execute } = setup(models);
+    const error = await expectError(
+      execute({ session: { model: "gpt-realtime-custom" } }),
+      400,
+      "invalid_input",
+    );
+    expect(error.message).toBe(
+      "session.model is not allowed by the relay configuration.",
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("accepts the default model when requested explicitly", async () => {
+    const { fetcher, execute } = setup();
+    await execute({ session: { model: "gpt-realtime-2.1" } });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("requires allowedModels to include the default model", () => {
+    expect(
+      () =>
+        new OpenAIProvider({
+          apiKey: API_KEY,
+          model: "gpt-realtime-2.1",
+          allowedModels: ["gpt-realtime-2.1-mini"],
+        }),
+    ).toThrow(/default model/u);
   });
 });
 

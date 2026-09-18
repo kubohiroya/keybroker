@@ -19,9 +19,11 @@ const MAX_INSTRUCTIONS_LENGTH = 16_384;
 const MAX_TOOLS = 32;
 const MAX_TOOL_DESCRIPTION_LENGTH = 1024;
 const VOICE_PATTERN = /^[a-z0-9_-]{1,32}$/u;
+export const MODEL_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/u;
 const TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/u;
 const REQUEST_KEYS = new Set(["session"]);
 const SESSION_KEYS = new Set([
+  "model",
   "instructions",
   "voice",
   "outputModalities",
@@ -31,7 +33,10 @@ const TOOL_KEYS = new Set(["type", "name", "description", "parameters"]);
 
 export interface OpenAIProviderOptions {
   apiKey: string;
+  /** Default model used when the client does not request one. */
   model?: string;
+  /** Models a client may request. Defaults to `[model]`; must contain `model`. */
+  allowedModels?: readonly string[];
   allowedVoices?: readonly string[];
   clientSecretTtlSeconds?: number;
   fetcher?: FetchLike;
@@ -49,6 +54,7 @@ export class OpenAIProvider implements CapabilityProvider {
   public readonly capabilities = new Set([OPENAI_REALTIME_CLIENT_SECRET]);
   private readonly client: OpenAIRealtimeClient;
   private readonly model: string;
+  private readonly allowedModels: ReadonlySet<string>;
   private readonly allowedVoices: ReadonlySet<string> | undefined;
   private readonly ttlSeconds: number;
 
@@ -59,6 +65,12 @@ export class OpenAIProvider implements CapabilityProvider {
       options.timeoutMilliseconds,
     );
     this.model = options.model ?? DEFAULT_OPENAI_REALTIME_MODEL;
+    this.allowedModels = new Set(options.allowedModels ?? [this.model]);
+    if (!this.allowedModels.has(this.model)) {
+      throw new TypeError(
+        "OpenAI allowedModels must include the default model.",
+      );
+    }
     this.allowedVoices =
       options.allowedVoices === undefined
         ? undefined
@@ -82,11 +94,16 @@ export class OpenAIProvider implements CapabilityProvider {
         "Unknown OpenAI resource.",
       );
     }
-    const session = parseSessionRequest(request.input, this.allowedVoices);
+    const { model: requestedModel, ...session } = parseSessionRequest(
+      request.input,
+      this.allowedVoices,
+      this.allowedModels,
+    );
+    const model = requestedModel ?? this.model;
     let secret;
     try {
       secret = await this.client.createClientSecret(
-        { ...session, model: this.model },
+        { ...session, model },
         this.ttlSeconds,
       );
     } catch {
@@ -99,7 +116,7 @@ export class OpenAIProvider implements CapabilityProvider {
     const result: OpenAIRealtimeClientSecretResult = {
       value: secret.value,
       expiresAt: secret.expiresAt,
-      model: this.model,
+      model,
     };
     return result;
   }
@@ -108,7 +125,8 @@ export class OpenAIProvider implements CapabilityProvider {
 export function parseSessionRequest(
   input: unknown,
   allowedVoices?: ReadonlySet<string>,
-): Omit<RealtimeSessionOptions, "model"> {
+  allowedModels?: ReadonlySet<string>,
+): Partial<RealtimeSessionOptions> {
   const body = requireRecord(input, "Request body");
   rejectUnknownKeys(body, REQUEST_KEYS, "Request body");
   if (body.session === undefined) return {};
@@ -116,11 +134,27 @@ export function parseSessionRequest(
   rejectUnknownKeys(session, SESSION_KEYS, "session");
 
   const result: {
+    model?: string;
     instructions?: string;
     voice?: string;
     outputModalities?: readonly ["audio"] | readonly ["text"];
     tools?: readonly RealtimeFunctionTool[];
   } = {};
+
+  if (session.model !== undefined) {
+    if (
+      typeof session.model !== "string" ||
+      !MODEL_PATTERN.test(session.model)
+    ) {
+      throw invalid(
+        "session.model must be 1 to 128 letters, digits, periods, colons, underscores, or hyphens.",
+      );
+    }
+    if (allowedModels !== undefined && !allowedModels.has(session.model)) {
+      throw invalid("session.model is not allowed by the relay configuration.");
+    }
+    result.model = session.model;
+  }
 
   if (session.instructions !== undefined) {
     if (

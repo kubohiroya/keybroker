@@ -35,6 +35,7 @@ export async function startRelay(config: RelayConfig): Promise<RunningRelay> {
       new OpenAIProvider({
         apiKey: openai.apiKey,
         model: openai.model,
+        allowedModels: openai.allowedModels,
         clientSecretTtlSeconds: openai.clientSecretTtlSeconds,
         ...(openai.allowedVoices === undefined
           ? {}

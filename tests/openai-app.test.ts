@@ -46,7 +46,14 @@ function fixture(
     }),
   ];
   if (options.withOpenAI ?? true) {
-    providers.push(new OpenAIProvider({ apiKey: API_KEY, fetcher }));
+    providers.push(
+      new OpenAIProvider({
+        apiKey: API_KEY,
+        fetcher,
+        model: "gpt-realtime-2.1-mini",
+        allowedModels: ["gpt-realtime-2.1-mini", "gpt-realtime-2.1"],
+      }),
+    );
   }
   const pairing = new PairingManager({
     capabilities: options.capabilities ?? [
@@ -109,11 +116,47 @@ describe("POST /v1/openai/realtime/client-secrets", () => {
       data: {
         value: "ek_test",
         expiresAt: 1_756_310_470_000,
-        model: "gpt-realtime-2.1",
+        model: "gpt-realtime-2.1-mini",
       },
     });
     expect(text).not.toContain(API_KEY);
     expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("lets the client choose an operator-approved model", async () => {
+    const { app, fetcher } = fixture();
+    const token = await pair(app);
+    const response = await post(
+      app,
+      JSON.stringify({ session: { model: "gpt-realtime-2.1" } }),
+      token,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: { model: "gpt-realtime-2.1" },
+    });
+    const [, init] = fetcher.mock.calls[0] ?? [];
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      session: { model: "gpt-realtime-2.1" },
+    });
+  });
+
+  it("rejects a model that is not in allowedModels", async () => {
+    const { app, fetcher } = fixture();
+    const token = await pair(app);
+    const response = await post(
+      app,
+      JSON.stringify({ session: { model: "gpt-realtime-custom" } }),
+      token,
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "invalid_input",
+        message: "session.model is not allowed by the relay configuration.",
+      },
+    });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("requires a relay bearer token", async () => {
@@ -161,7 +204,7 @@ describe("POST /v1/openai/realtime/client-secrets", () => {
 
     const unknown = await post(
       app,
-      JSON.stringify({ session: { model: "gpt-4o" } }),
+      JSON.stringify({ session: { temperature: 0.5 } }),
       token,
     );
     expect(unknown.status).toBe(400);

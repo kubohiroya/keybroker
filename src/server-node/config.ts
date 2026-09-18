@@ -5,12 +5,14 @@ import { validateCredentials } from "../providers/candyhouse/client.js";
 import {
   DEFAULT_CLIENT_SECRET_TTL_SECONDS,
   DEFAULT_OPENAI_REALTIME_MODEL,
+  MODEL_PATTERN,
 } from "../providers/openai/provider.js";
 
 const OPENAI_KEYS = new Set([
   "apiKeyEnv",
   "apiKey",
   "model",
+  "allowedModels",
   "allowedVoices",
   "clientSecretTtlSeconds",
 ]);
@@ -18,6 +20,7 @@ const OPENAI_KEYS = new Set([
 export interface OpenAIProviderConfig {
   apiKey: string;
   model: string;
+  allowedModels: readonly string[];
   allowedVoices?: readonly string[];
   clientSecretTtlSeconds: number;
 }
@@ -174,13 +177,15 @@ function parseOpenAI(
     openai.model === undefined
       ? DEFAULT_OPENAI_REALTIME_MODEL
       : string(openai.model, "providers.openai.model");
-  if (!/^[A-Za-z0-9._:-]{1,128}$/u.test(model)) {
+  if (!MODEL_PATTERN.test(model)) {
     throw new TypeError("providers.openai.model has an invalid format.");
   }
+  const allowedModels = parseAllowedModels(openai.allowedModels, model);
 
   const config: OpenAIProviderConfig = {
     apiKey,
     model,
+    allowedModels,
     clientSecretTtlSeconds: integer(
       openai.clientSecretTtlSeconds,
       "providers.openai.clientSecretTtlSeconds",
@@ -205,6 +210,31 @@ function parseOpenAI(
     config.allowedVoices = voices as string[];
   }
   return config;
+}
+
+function parseAllowedModels(value: unknown, model: string): string[] {
+  if (value === undefined) return [model];
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((item) => typeof item !== "string" || !MODEL_PATTERN.test(item))
+  ) {
+    throw new TypeError(
+      "providers.openai.allowedModels must be a non-empty array of model names (1 to 128 letters, digits, ., :, _ or -).",
+    );
+  }
+  const models = value as string[];
+  if (new Set(models).size !== models.length) {
+    throw new TypeError(
+      "providers.openai.allowedModels must not contain duplicates.",
+    );
+  }
+  if (!models.includes(model)) {
+    throw new TypeError(
+      `providers.openai.model (${model}) must be listed in providers.openai.allowedModels.`,
+    );
+  }
+  return [...models];
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {

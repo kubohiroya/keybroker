@@ -59,6 +59,7 @@ describe("relay server startup", () => {
         openai: {
           apiKey: "sk-test",
           model: "gpt-realtime-2.1",
+          allowedModels: ["gpt-realtime-2.1"],
           clientSecretTtlSeconds: 60,
         },
       },
