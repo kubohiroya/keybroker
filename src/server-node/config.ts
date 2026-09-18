@@ -2,6 +2,25 @@ import { readFile, stat } from "node:fs/promises";
 import { platform } from "node:os";
 import type { SesameCredentials } from "../providers/candyhouse/client.js";
 import { validateCredentials } from "../providers/candyhouse/client.js";
+import {
+  DEFAULT_CLIENT_SECRET_TTL_SECONDS,
+  DEFAULT_OPENAI_REALTIME_MODEL,
+} from "../providers/openai/provider.js";
+
+const OPENAI_KEYS = new Set([
+  "apiKeyEnv",
+  "apiKey",
+  "model",
+  "allowedVoices",
+  "clientSecretTtlSeconds",
+]);
+
+export interface OpenAIProviderConfig {
+  apiKey: string;
+  model: string;
+  allowedVoices?: readonly string[];
+  clientSecretTtlSeconds: number;
+}
 
 export interface RelayConfig {
   server: {
@@ -11,9 +30,10 @@ export interface RelayConfig {
     sessionTtlSeconds: number;
   };
   providers: {
-    candyhouse: {
+    candyhouse?: {
       devices: Readonly<Record<string, SesameCredentials>>;
     };
+    openai?: OpenAIProviderConfig;
   };
 }
 
@@ -37,26 +57,27 @@ export async function loadRelayConfig(path: string): Promise<RelayConfig> {
   return parseRelayConfig(value);
 }
 
-export function parseRelayConfig(value: unknown): RelayConfig {
+export function parseRelayConfig(
+  value: unknown,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): RelayConfig {
   const root = record(value, "config");
   const server = root.server === undefined ? {} : record(root.server, "server");
   const providers = record(root.providers, "providers");
-  const candyhouse = record(providers.candyhouse, "providers.candyhouse");
-  const rawDevices = record(candyhouse.devices, "providers.candyhouse.devices");
-  const devices: Record<string, SesameCredentials> = {};
-
-  for (const [alias, rawCredentials] of Object.entries(rawDevices)) {
-    const credentials = record(rawCredentials, `device ${alias}`);
-    const parsed = {
-      apiKey: string(credentials.apiKey, `${alias}.apiKey`),
-      uuid: string(credentials.uuid, `${alias}.uuid`),
-      secretKey: string(credentials.secretKey, `${alias}.secretKey`),
-    };
-    validateCredentials(parsed);
-    devices[alias] = parsed;
+  const parsedProviders: RelayConfig["providers"] = {};
+  if (providers.candyhouse !== undefined) {
+    parsedProviders.candyhouse = parseCandyHouse(providers.candyhouse);
   }
-  if (Object.keys(devices).length === 0) {
-    throw new TypeError("At least one Candy House device must be configured.");
+  if (providers.openai !== undefined) {
+    parsedProviders.openai = parseOpenAI(providers.openai, environment);
+  }
+  if (
+    parsedProviders.candyhouse === undefined &&
+    parsedProviders.openai === undefined
+  ) {
+    throw new TypeError(
+      "At least one provider (candyhouse or openai) must be configured.",
+    );
   }
 
   return {
@@ -80,8 +101,110 @@ export function parseRelayConfig(value: unknown): RelayConfig {
         43_200,
       ),
     },
-    providers: { candyhouse: { devices } },
+    providers: parsedProviders,
   };
+}
+
+function parseCandyHouse(value: unknown): {
+  devices: Readonly<Record<string, SesameCredentials>>;
+} {
+  const candyhouse = record(value, "providers.candyhouse");
+  const rawDevices = record(candyhouse.devices, "providers.candyhouse.devices");
+  const devices: Record<string, SesameCredentials> = {};
+
+  for (const [alias, rawCredentials] of Object.entries(rawDevices)) {
+    const credentials = record(rawCredentials, `device ${alias}`);
+    const parsed = {
+      apiKey: string(credentials.apiKey, `${alias}.apiKey`),
+      uuid: string(credentials.uuid, `${alias}.uuid`),
+      secretKey: string(credentials.secretKey, `${alias}.secretKey`),
+    };
+    validateCredentials(parsed);
+    devices[alias] = parsed;
+  }
+  if (Object.keys(devices).length === 0) {
+    throw new TypeError("At least one Candy House device must be configured.");
+  }
+  return { devices };
+}
+
+function parseOpenAI(
+  value: unknown,
+  environment: Readonly<Record<string, string | undefined>>,
+): OpenAIProviderConfig {
+  const openai = record(value, "providers.openai");
+  for (const key of Object.keys(openai)) {
+    if (!OPENAI_KEYS.has(key)) {
+      throw new TypeError("providers.openai contains an unsupported field.");
+    }
+  }
+  const hasEnv = openai.apiKeyEnv !== undefined;
+  const hasKey = openai.apiKey !== undefined;
+  if (hasEnv === hasKey) {
+    throw new TypeError(
+      "providers.openai requires exactly one of apiKeyEnv or apiKey.",
+    );
+  }
+
+  let apiKey: string;
+  if (hasEnv) {
+    const variable = string(openai.apiKeyEnv, "providers.openai.apiKeyEnv");
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(variable)) {
+      throw new TypeError(
+        "providers.openai.apiKeyEnv must be an environment variable name.",
+      );
+    }
+    const fromEnvironment = environment[variable]?.trim();
+    if (!fromEnvironment) {
+      throw new TypeError(
+        `Environment variable ${variable} (providers.openai.apiKeyEnv) is not set.`,
+      );
+    }
+    apiKey = fromEnvironment;
+  } else {
+    apiKey = string(openai.apiKey, "providers.openai.apiKey").trim();
+    if (apiKey.length === 0) {
+      throw new TypeError(
+        "providers.openai.apiKey must be a non-empty string.",
+      );
+    }
+  }
+
+  const model =
+    openai.model === undefined
+      ? DEFAULT_OPENAI_REALTIME_MODEL
+      : string(openai.model, "providers.openai.model");
+  if (!/^[A-Za-z0-9._:-]{1,128}$/u.test(model)) {
+    throw new TypeError("providers.openai.model has an invalid format.");
+  }
+
+  const config: OpenAIProviderConfig = {
+    apiKey,
+    model,
+    clientSecretTtlSeconds: integer(
+      openai.clientSecretTtlSeconds,
+      "providers.openai.clientSecretTtlSeconds",
+      10,
+      600,
+      DEFAULT_CLIENT_SECRET_TTL_SECONDS,
+    ),
+  };
+  if (openai.allowedVoices !== undefined) {
+    const voices = openai.allowedVoices;
+    if (
+      !Array.isArray(voices) ||
+      voices.some(
+        (voice) =>
+          typeof voice !== "string" || !/^[a-z0-9_-]{1,32}$/u.test(voice),
+      )
+    ) {
+      throw new TypeError(
+        "providers.openai.allowedVoices must be an array of voice names (lowercase letters, digits, _ or -).",
+      );
+    }
+    config.allowedVoices = voices as string[];
+  }
+  return config;
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {

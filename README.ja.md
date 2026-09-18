@@ -1,12 +1,13 @@
 # @kubohiroya/capability-proxy
 
-外部APIの資格情報をクライアントへ渡さず、名前付きCapabilityだけをlocalhostから提供するRelayです。最初のProviderとしてCandy House SESAME Web APIを実装しています。
+外部APIの資格情報をクライアントへ渡さず、名前付きCapabilityだけをlocalhostから提供するRelayです。Providerとして、Candy House SESAME Web APIと、OpenAI Realtime APIのエフェメラルクライアントシークレット発行を実装しています。
 
 ## セキュリティ境界
 
 - サーバーは`127.0.0.1`だけでlistenします。
 - 任意URL、任意HTTPヘッダー、任意のCandy House UUIDは受け付けません。
 - Candy HouseのAPIキーとsecretはローカル設定ファイルだけに置きます。
+- OpenAIのAPIキーは環境変数(推奨)または設定ファイルだけに置き、ブラウザへは短命のエフェメラルキー(`ek_...`)だけを返します。
 - 設定ファイルはPOSIX環境でmode `0600`を必須とします。
 - 起動時の8桁コードを一度だけセッショントークンに交換します。
 - セッショントークンはハッシュ化してメモリだけに保持し、Relay再起動時に失効します。
@@ -28,7 +29,11 @@ cp config.example.json config.local.json
 chmod 600 config.local.json
 ```
 
-`config.local.json`にデバイス別名、APIキー、UUID、secret keyを設定します。ファイルはGit管理対象外です。
+`config.local.json`に使うProviderだけを設定します。`providers.candyhouse`と`providers.openai`はどちらも省略可能ですが、少なくとも一方が必要です。ファイルはGit管理対象外です。
+
+### Candy House
+
+デバイス別名、APIキー、UUID、secret keyを設定します。
 
 ```json
 {
@@ -50,6 +55,41 @@ chmod 600 config.local.json
   }
 }
 ```
+
+### OpenAI Realtime
+
+OpenAIのAPIキーは環境変数で渡すことを推奨します。
+
+```sh
+export OPENAI_API_KEY='sk-...'
+```
+
+```json
+{
+  "server": {
+    "port": 8787,
+    "allowedOrigins": ["null", "https://turbowarp.org"]
+  },
+  "providers": {
+    "openai": {
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "model": "gpt-realtime-2.1",
+      "allowedVoices": ["alloy", "marin", "cedar"],
+      "clientSecretTtlSeconds": 60
+    }
+  }
+}
+```
+
+| キー                     | 必須 | 既定値               | 説明                                                                              |
+| ------------------------ | ---- | -------------------- | --------------------------------------------------------------------------------- |
+| `apiKeyEnv`              | ※    | -                    | APIキーを保持する環境変数名。推奨。起動時に未設定または空ならエラーで終了します。 |
+| `apiKey`                 | ※    | -                    | APIキーを直接記述。設定ファイルのmode `0600`が前提です。                          |
+| `model`                  |      | `"gpt-realtime-2.1"` | 発行するセッションのモデル。クライアントからは変更できません。                    |
+| `allowedVoices`          |      | 制限なし             | 指定した場合、リクエストの`voice`はこの一覧に含まれている必要があります。         |
+| `clientSecretTtlSeconds` |      | `60`                 | エフェメラルキーの有効期間(秒)。10〜600の整数。                                   |
+
+※ `apiKeyEnv`と`apiKey`はどちらか一方だけを指定します。両方または両方なしは起動エラーです。未知のキーも起動エラーになります。APIキーの値はログやエラーメッセージに出力しません。
 
 ## 起動とペアリング
 
@@ -77,9 +117,77 @@ GET  /v1/candyhouse/devices/:alias/history?page=1&length=20
 POST /v1/candyhouse/devices/:alias/commands/lock
 POST /v1/candyhouse/devices/:alias/commands/unlock
 POST /v1/candyhouse/devices/:alias/commands/toggle
+POST /v1/openai/realtime/client-secrets
 ```
 
 コマンド本文には任意で`{"history":"TurboWarp"}`を指定できます。コマンドAPIを使うには、設定で`commandsEnabled`を明示的に`true`へ変更してRelayを再起動します。
+
+エラーはすべて`{"error":{"code":"...","message":"..."}}`形式です。
+
+### OpenAI Realtime クライアントシークレット
+
+`POST /v1/openai/realtime/client-secrets`は、ペアリング済みクライアント(Capability `openai.realtime.client_secret`)に対して、OpenAI Realtime APIのエフェメラルクライアントシークレットを発行します。`Authorization: Bearer <token>`が必要です。このルートだけ本文上限は65536バイトです(他のルートは4096バイト)。
+
+リクエスト本文(すべて任意。未知のキーは400 `invalid_input`):
+
+```json
+{
+  "session": {
+    "instructions": "16384文字以下",
+    "voice": "marin",
+    "outputModalities": ["audio"],
+    "tools": [
+      {
+        "type": "function",
+        "name": "move_sprite",
+        "description": "1024文字以下",
+        "parameters": { "type": "object", "properties": {} }
+      }
+    ]
+  }
+}
+```
+
+- `voice`: `^[a-z0-9_-]{1,32}$`。`allowedVoices`設定時はその一覧に含まれること。
+- `outputModalities`: `["audio"]`または`["text"]`のみ。
+- `tools`: 最大32件。`type`は`"function"`、`name`は`^[A-Za-z0-9_-]{1,64}$`で一意、`description`と`parameters`は任意。`parameters`は`type: "object"`を持つJSONオブジェクト。toolsを1件以上指定した場合だけ`tool_choice: "auto"`を付けて送信します。
+- モデルとTTLは設定値で固定され、クライアントからは指定できません。
+
+成功時(200、`Cache-Control: no-store`):
+
+```json
+{
+  "data": {
+    "value": "ek_...",
+    "expiresAt": 1756310470000,
+    "model": "gpt-realtime-2.1"
+  }
+}
+```
+
+`expiresAt`はUnixエポックのミリ秒です。ブラウザはこの`value`を使ってOpenAI Realtime APIへ直接接続します。
+
+| ステータス | `code`               | 条件                                                                        |
+| ---------- | -------------------- | --------------------------------------------------------------------------- |
+| 400        | `invalid_json`       | 本文がJSONでない                                                            |
+| 400        | `invalid_input`      | 本文の検証に失敗                                                            |
+| 401        | `missing_token`      | Bearer tokenがない                                                          |
+| 401        | `invalid_token`      | tokenが無効または期限切れ                                                   |
+| 403        | `capability_denied`  | tokenにCapabilityがない                                                     |
+| 403        | `origin_denied`      | Originが`allowedOrigins`にない                                              |
+| 403        | `invalid_host`       | Hostヘッダーが不正                                                          |
+| 404        | `provider_not_found` | `providers.openai`が設定されていない                                        |
+| 413        | `request_too_large`  | 本文が65536バイトを超える                                                   |
+| 502        | `upstream_error`     | OpenAIが2xx以外を返した、応答が不正、ネットワークエラー、タイムアウト(10秒) |
+
+`upstream_error`のメッセージは汎用文言だけで、OpenAIの応答本文やAPIキーは返しません。
+
+### OpenAI利用時のセキュリティ上の注意
+
+- 長期APIキーはRelayプロセス内に留まり、ブラウザへは送られません。ブラウザが受け取るのは`clientSecretTtlSeconds`で期限の切れるエフェメラルキーだけです。TTLは用途に必要な最短に保ってください。
+- エフェメラルキーは有効期間中、そのまま課金を伴うRealtimeセッションを開始できます。ログやプロジェクトファイルへ保存しないでください。
+- TurboWarp拡張から呼び出す場合、`server.allowedOrigins`に拡張の実行Origin(サンドボックス拡張は`"null"`、非サンドボックスは`"https://turbowarp.org"`など)を含めてください。
+- Origin検証とHost検証(DNS rebinding対策)はこのルートにも適用されます。CORSは認可ではなく、Bearer tokenが認可境界です。
 
 ## 検証
 
@@ -89,7 +197,7 @@ pnpm check
 
 ## ロールバック
 
-Relayプロセスを停止すれば、すべてのローカルセッションが直ちに失効します。TurboWarp-SesameはDirect modeへ戻せます。設定ファイルと資格情報は自動削除しません。
+Relayプロセスを停止すれば、すべてのローカルセッションが直ちに失効します。TurboWarp-SesameはDirect modeへ戻せます。設定ファイルと資格情報は自動削除しません。発行済みのOpenAIエフェメラルキーは、Relay停止後も`expiresAt`まで有効です。
 
 ## ライセンスと由来
 

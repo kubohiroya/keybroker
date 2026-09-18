@@ -1,12 +1,17 @@
 import { serve, type ServerType } from "@hono/node-server";
 import { PairingManager } from "../core/pairing.js";
 import { CapabilityRegistry } from "../core/registry.js";
+import type { CapabilityProvider } from "../core/types.js";
 import {
   CANDYHOUSE_COMMAND,
   CANDYHOUSE_HISTORY,
   CANDYHOUSE_STATUS,
   CandyHouseProvider,
 } from "../providers/candyhouse/provider.js";
+import {
+  OPENAI_REALTIME_CLIENT_SECRET,
+  OpenAIProvider,
+} from "../providers/openai/provider.js";
 import { createRelayApp } from "./app.js";
 import type { RelayConfig } from "./config.js";
 
@@ -16,16 +21,33 @@ export interface RunningRelay {
 }
 
 export async function startRelay(config: RelayConfig): Promise<RunningRelay> {
-  const capabilities = [CANDYHOUSE_STATUS, CANDYHOUSE_HISTORY];
-  if (config.server.commandsEnabled) capabilities.push(CANDYHOUSE_COMMAND);
+  const capabilities: string[] = [];
+  const providers: CapabilityProvider[] = [];
+  const { candyhouse, openai } = config.providers;
+  if (candyhouse !== undefined) {
+    capabilities.push(CANDYHOUSE_STATUS, CANDYHOUSE_HISTORY);
+    if (config.server.commandsEnabled) capabilities.push(CANDYHOUSE_COMMAND);
+    providers.push(new CandyHouseProvider({ devices: candyhouse.devices }));
+  }
+  if (openai !== undefined) {
+    capabilities.push(OPENAI_REALTIME_CLIENT_SECRET);
+    providers.push(
+      new OpenAIProvider({
+        apiKey: openai.apiKey,
+        model: openai.model,
+        clientSecretTtlSeconds: openai.clientSecretTtlSeconds,
+        ...(openai.allowedVoices === undefined
+          ? {}
+          : { allowedVoices: openai.allowedVoices }),
+      }),
+    );
+  }
 
   const pairing = new PairingManager({
     capabilities,
     sessionTtlMilliseconds: config.server.sessionTtlSeconds * 1000,
   });
-  const registry = new CapabilityRegistry([
-    new CandyHouseProvider({ devices: config.providers.candyhouse.devices }),
-  ]);
+  const registry = new CapabilityRegistry(providers);
   const app = createRelayApp({
     pairing,
     registry,

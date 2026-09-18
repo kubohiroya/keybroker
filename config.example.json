@@ -13,6 +13,12 @@
           "secretKey": "00000000000000000000000000000000"
         }
       }
+    },
+    "openai": {
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "model": "gpt-realtime-2.1",
+      "allowedVoices": ["alloy", "marin", "cedar"],
+      "clientSecretTtlSeconds": 60
     }
   }
 }

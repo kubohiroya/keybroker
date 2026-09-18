@@ -4,6 +4,8 @@ export * from "./core/registry.js";
 export type * from "./core/types.js";
 export * from "./providers/candyhouse/client.js";
 export * from "./providers/candyhouse/provider.js";
+export * from "./providers/openai/client.js";
+export * from "./providers/openai/provider.js";
 export * from "./server-node/app.js";
 export * from "./server-node/config.js";
 export * from "./server-node/server.js";

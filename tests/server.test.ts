@@ -35,6 +35,37 @@ describe("relay server startup", () => {
       },
     );
   });
+
+  it("starts with only the openai provider configured", async () => {
+    const probe = createServer();
+    await new Promise<void>((resolve, reject) => {
+      probe.once("error", reject);
+      probe.listen(0, "127.0.0.1", resolve);
+    });
+    const address = probe.address();
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected a TCP address.");
+    }
+
+    const running = await startRelay({
+      server: {
+        port: address.port,
+        commandsEnabled: false,
+        allowedOrigins: ["null", "https://turbowarp.org"],
+        sessionTtlSeconds: 60,
+      },
+      providers: {
+        openai: {
+          apiKey: "sk-test",
+          model: "gpt-realtime-2.1",
+          clientSecretTtlSeconds: 60,
+        },
+      },
+    });
+    await new Promise<void>((resolve) => running.server.close(() => resolve()));
+    expect(running.pairingCode).toMatch(/^\d{8}$/u);
+  });
 });
 
 function configForPort(port: number): RelayConfig {
