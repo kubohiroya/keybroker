@@ -69,7 +69,7 @@ export function createRelayApp(options: RelayAppOptions): Hono {
   });
 
   app.get("/health", (context) =>
-    context.json({ status: "ok", service: "capability-proxy" }),
+    context.json({ status: "ok", service: "keybroker" }),
   );
 
   app.post("/v1/pair", async (context) => {
@@ -77,11 +77,11 @@ export function createRelayApp(options: RelayAppOptions): Hono {
     if (typeof body.code !== "string") {
       throw new CapabilityError(400, "invalid_input", "code must be a string.");
     }
-    return context.json(options.pairing.pair(body.code));
+    return context.json(await options.pairing.pair(body.code));
   });
 
   app.get("/v1/candyhouse/devices/:alias/status", async (context) => {
-    const principal = authenticate(
+    const principal = await authenticate(
       context.req.header("authorization"),
       options.pairing,
     );
@@ -97,7 +97,7 @@ export function createRelayApp(options: RelayAppOptions): Hono {
   });
 
   app.get("/v1/candyhouse/devices/:alias/history", async (context) => {
-    const principal = authenticate(
+    const principal = await authenticate(
       context.req.header("authorization"),
       options.pairing,
     );
@@ -119,7 +119,7 @@ export function createRelayApp(options: RelayAppOptions): Hono {
   app.post(
     "/v1/candyhouse/devices/:alias/commands/:command",
     async (context) => {
-      const principal = authenticate(
+      const principal = await authenticate(
         context.req.header("authorization"),
         options.pairing,
       );
@@ -141,7 +141,7 @@ export function createRelayApp(options: RelayAppOptions): Hono {
   );
 
   app.post("/v1/openai/realtime/client-secrets", async (context) => {
-    const principal = authenticate(
+    const principal = await authenticate(
       context.req.header("authorization"),
       options.pairing,
     );
@@ -186,10 +186,10 @@ export function createRelayApp(options: RelayAppOptions): Hono {
   return app;
 }
 
-function authenticate(
+async function authenticate(
   authorization: string | undefined,
   pairing: PairingManager,
-): CapabilityPrincipal {
+): Promise<CapabilityPrincipal> {
   const match = /^Bearer ([A-Za-z0-9_-]{20,})$/u.exec(authorization ?? "");
   if (!match?.[1]) {
     throw new CapabilityError(

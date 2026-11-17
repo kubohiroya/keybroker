@@ -1,5 +1,5 @@
 {
-  "name": "@kubohiroya/capability-proxy",
+  "name": "@kubohiroya/keybroker",
   "version": "0.0.0",
   "description": "A localhost-first capability relay for calling external APIs without exposing provider credentials to clients.",
   "author": "Hiroya Kubo <hiroya@cuc.ac.jp>",
@@ -8,7 +8,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "capability-proxy": "dist/server-node/cli.js"
+    "keybroker": "dist/server-node/cli.js"
   },
   "exports": {
     ".": {
