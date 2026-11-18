@@ -2,7 +2,7 @@
 
 [English](./github-app-setup.md)
 
-[git-smart-http.md](./git-smart-http.md) の Git 経路は、GitHub App を通して GitHub に接続します。この文書では、誰がその App を作るのかと、配備を運用する人が App を作って設定する手順を説明します。
+[git-smart-http.md](./git-smart-http.ja.md) の Git 経路は、GitHub App を通して GitHub に接続します。この文書では、誰がその App を作るのかと、配備を運用する人が App を作って設定する手順を説明します。
 
 ## 誰が App を作るか
 
@@ -67,7 +67,7 @@ npx wrangler secret put GIT_GITHUB_CLIENT_SECRET --name keybroker-dev
 openssl rand -hex 32 | npx wrangler secret put GIT_SESSION_KEY --name keybroker-dev
 ```
 
-Git Worker の変数（`GIT_ALLOWED_ORIGINS`、`GIT_PROXY_ORIGIN`、`GIT_GITHUB_API`）の設定と配備の順番は、[git-smart-http.md](./git-smart-http.md#enable-and-roll-back) に従います。
+Git Worker の変数（`GIT_ALLOWED_ORIGINS`、`GIT_PROXY_ORIGIN`、`GIT_GITHUB_API`）の設定と配備の順番は、[git-smart-http.md](./git-smart-http.ja.md#enable-and-roll-back) に従います。
 
 ## うまくいかないとき
 

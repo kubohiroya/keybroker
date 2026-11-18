@@ -1,6 +1,10 @@
 # @kubohiroya/keybroker
 
+[English](README.md)
+
 外部APIの資格情報をクライアントへ渡さず、名前付きCapabilityだけをlocalhostから提供するRelayです。Providerとして、Candy House SESAME Web APIと、OpenAI Realtime APIのエフェメラルクライアントシークレット発行を実装しています。
+
+Cloudflare 上では、TurboWarp Plus Editor のための GitHub の経路を提供する Worker としても動きます（[Cloudflare ホスト](#cloudflare-ホスト)）。
 
 ## セキュリティ境界
 
@@ -207,7 +211,7 @@ Relayプロセスを停止すれば、すべてのローカルセッションが
 
 ## Cloudflare ホスト
 
-`@kubohiroya/keybroker/cloudflare` は、TurboWarp Plus Editor のための GitHub の経路を提供する Cloudflare Worker です。GitHub App でのログインとサーバー側でのトークンの保管、Git Smart HTTP の中継、決まった PR とレビューの呼び出し、リポジトリの作成、承認された公開を扱います。トークンは Durable Object の中で暗号化して保管し、ブラウザーには期限が短くリポジトリに限った Bearer だけを渡します。`wrangler.toml.template` をコピーし、秘密の値を設定して `pnpm deploy:cloudflare` で配備します。詳しくは [docs/github](docs/github/README.md) を参照してください。
+`@kubohiroya/keybroker/cloudflare` は、TurboWarp Plus Editor のための GitHub の経路を提供する Cloudflare Worker です。GitHub App でのログインとサーバー側でのトークンの保管、Git Smart HTTP の中継、決まった PR とレビューの呼び出し、リポジトリの作成、承認された公開を扱います。トークンは Durable Object の中で暗号化して保管し、ブラウザーには期限が短くリポジトリに限った Bearer だけを渡します。`wrangler.toml.template` をコピーし、秘密の値を設定して `pnpm deploy:cloudflare` で配備します。詳しくは [docs/github](docs/github/README.ja.md) を参照してください。設計の経緯は [ADR 0001](docs/adr/0001-cloudflare-host-and-github-provider.ja.md) にあります。
 
 入口は `@kubohiroya/keybroker`（core と provider）、`@kubohiroya/keybroker/node`（localhost のリレー）、`@kubohiroya/keybroker/cloudflare`（Worker と Durable Object）の三つです。
 

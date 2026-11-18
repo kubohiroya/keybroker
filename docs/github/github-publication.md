@@ -1,5 +1,7 @@
 # GitHub publication from TurboWarp Plus Editor
 
+[日本語](./github-publication.ja.md)
+
 The Cloudflare BFF can run an explicitly approved publication job for a repository verified by a normal Git write session. The job is journaled by immutable GitHub account ID, repository ID and Editor origin. Only fixed GitHub calls from the Editor Git package's publication engine can advance it. The Git Worker still serves the existing Git Smart HTTP and read-only PR routes.
 
 ## Approval and execution
