@@ -1,5 +1,7 @@
 # TurboWarp Plus Editor Git proxy
 
+[日本語](./git-smart-http.ja.md)
+
 This optional contract implements mode B of [TurboWarp Plus Editor #315](https://github.com/kubohiroya/turbowarp-plus-editor/issues/315). It uses GitHub App web authorization, a BFF-owned Durable Object, and a fixed-route Git relay. Both run in the keybroker Cloudflare Worker (`src/cloudflare/worker.ts`); see [the index](./README.md) for what "BFF" and "Git Worker" mean here.
 
 Account-scoped initial creation uses the separate [repository creation contract](./github-repository-creation.md).

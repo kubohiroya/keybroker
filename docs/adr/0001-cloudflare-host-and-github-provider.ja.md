@@ -1,5 +1,7 @@
 # ADR 0001: Cloudflare ホストと、GitHub・ide-gsm の provider を keybroker に加える
 
+[English](./0001-cloudflare-host-and-github-provider.md)
+
 - **状態:** Accepted
 - **日付:** 2026-11-18
 
@@ -143,7 +145,7 @@ cloudflare ホストで最初に有効にするのは、GitHub provider です�
 1. hierarchidb #1760 を先にマージする。動いている途中のものを移さないため。
 2. keybroker：npm の名前を改め、core を Web 標準の API に寄せ、provider に「中継」と「発行」を加える。node ホストの振る舞いは変えない。
 3. keybroker：cloudflare ホストと GitHub provider を、hierarchidb の main から移す。テストも移す。
-4. dev に配備する。dev 用の GitHub App（GitHub App を作るアカウント）と、Cloudflare（Worker を配備するアカウント）が要る。秘密の値は運用者が自分で入れる。
+4. dev に配備する。運用者が、GitHub App を作る GitHub アカウントで dev 用の App を作り、Worker を配備する Cloudflare アカウントで配備する。秘密の値は運用者が自分で入れる。
 5. TurboWarp Plus Editor を keybroker の dev のオリジンでビルドし、実 GitHub の private リポジトリで fetch・pull・push を確かめる（TurboWarp Plus Editor #316）。
 6. hierarchidb から Git の部分と文書を外し、keybroker を指すようにする。
 7. TurboWarp Plus Editor の文書のリンク（`docs/features/git/` の GitHub App 設定と API 設定）を keybroker に替える。
@@ -155,7 +157,6 @@ cloudflare ホストで最初に有効にするのは、GitHub provider です�
 - TurboWarp Plus Desktop のメインプロセスにある localhost の Git プロキシを、keybroker の node ホストと GitHub provider（デバイスフロー）に寄せるか。
 - ide-gsm を Cloudflare から届く場所に置く方法（Cloudflare Tunnel など）と、JWT の発行と中継のどちらを使うか。
 - ide-gsm の `api-github` が自前で行っている GitHub OAuth と GitHub API の中継を、keybroker の GitHub provider に寄せるか。
-- 英語版の ADR を用意する時期。
 
 ## 関連
 

@@ -1,5 +1,7 @@
 # GitHub repository creation for TurboWarp Plus Editor
 
+[日本語](./github-repository-creation.ja.md)
+
 This optional BFF flow implements the personal-account creation path for [TurboWarp Plus Editor #525](https://github.com/kubohiroya/turbowarp-plus-editor/issues/525). The ordinary [Git proxy](./git-smart-http.md) continues to use a separate repository-scoped session.
 
 ## Authorization
@@ -34,6 +36,6 @@ Register `GitRepositoryCreation` as a SQLite-backed Durable Object and bind it a
 
 Grant the GitHub App the **Repository creation: Write** repository permission for personal repository creation. For the separate topics operation, **Administration: Write** must be approved. For initial push through the ordinary Git proxy, its App installation and user need **Contents: Write** on the created repository. [Create a repository](https://docs.github.com/en/rest/repos/repos#create-a-repository-for-the-authenticated-user) · [Topics endpoint](https://docs.github.com/en/rest/repos/repos#replace-all-repository-topics)
 
-For a live check, deploy the BFF and Git Worker in a test environment and configure both Apps and the Editor origin. Use a disposable GitHub account or repository name and a project whose contents may be uploaded. Sign into the creation App from the Editor, confirm the personal owner and repository visibility, and create the repository. Verify its numeric ID, visibility, description and topics in GitHub. If the ordinary Git App installation uses selected repositories, add the new repository to that installation before signing into the ordinary Git App. After first push, verify the default branch, the converted project files, README and license. Replaying the same operation with its original inputs must return the existing receipt.
+For a live check, deploy keybroker in a test environment and configure both Apps and the Editor origin. Use a disposable GitHub account or repository name and a project whose contents may be uploaded. Sign into the creation App from the Editor, confirm the personal owner and repository visibility, and create the repository. Verify its numeric ID, visibility, description and topics in GitHub. If the ordinary Git App installation uses selected repositories, add the new repository to that installation before signing into the ordinary Git App. After first push, verify the default branch, the converted project files, README and license. Replaying the same operation with its original inputs must return the existing receipt.
 
 To roll back, remove the creation binding or its settings. Leave journal records intact so a later re-enable can reconcile earlier attempts.
