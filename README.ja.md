@@ -1,4 +1,4 @@
-# @kubohiroya/capability-proxy
+# @kubohiroya/keybroker
 
 外部APIの資格情報をクライアントへ渡さず、名前付きCapabilityだけをlocalhostから提供するRelayです。Providerとして、Candy House SESAME Web APIと、OpenAI Realtime APIのエフェメラルクライアントシークレット発行を実装しています。
 

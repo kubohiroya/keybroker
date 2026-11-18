@@ -1,9 +1,3 @@
-import {
-  createHash,
-  randomBytes,
-  randomInt,
-  timingSafeEqual,
-} from "node:crypto";
 import { CapabilityError } from "./errors.js";
 import type { CapabilityPrincipal } from "./types.js";
 
@@ -23,7 +17,7 @@ interface SessionRecord {
 }
 
 export class PairingManager {
-  private codeHash: Buffer;
+  private readonly code: Uint8Array;
   private codeExpiresAt: number;
   private attempts = 0;
   private readonly sessions = new Map<string, SessionRecord>();
@@ -38,10 +32,9 @@ export class PairingManager {
     this.sessionTtlMilliseconds =
       options.sessionTtlMilliseconds ?? 12 * 60 * 60 * 1000;
     this.maximumAttempts = options.maximumAttempts ?? 5;
-    this.randomToken =
-      options.randomToken ?? (() => randomBytes(32).toString("base64url"));
+    this.randomToken = options.randomToken ?? createSessionToken;
     this.pairingCode = options.randomCode?.() ?? createPairingCode();
-    this.codeHash = digest(this.pairingCode);
+    this.code = encoder.encode(this.pairingCode);
     this.codeExpiresAt =
       this.now() + (options.codeTtlMilliseconds ?? 5 * 60 * 1000);
     this.capabilities = new Set(options.capabilities);
@@ -49,7 +42,9 @@ export class PairingManager {
 
   private readonly capabilities: ReadonlySet<string>;
 
-  public pair(code: string): { token: string; expiresAt: number } {
+  public async pair(
+    code: string,
+  ): Promise<{ token: string; expiresAt: number }> {
     if (
       this.now() >= this.codeExpiresAt ||
       this.attempts >= this.maximumAttempts
@@ -61,8 +56,7 @@ export class PairingManager {
       );
     }
     this.attempts += 1;
-    const candidate = digest(code);
-    if (!timingSafeEqual(candidate, this.codeHash)) {
+    if (!constantTimeEqual(encoder.encode(code), this.code)) {
       throw new CapabilityError(
         401,
         "invalid_pairing_code",
@@ -71,10 +65,10 @@ export class PairingManager {
     }
 
     this.codeExpiresAt = 0;
-    this.codeHash.fill(0);
+    this.code.fill(0);
     const token = this.randomToken();
     const expiresAt = this.now() + this.sessionTtlMilliseconds;
-    this.sessions.set(tokenDigest(token), {
+    this.sessions.set(await tokenDigest(token), {
       expiresAt,
       principal: {
         id: "local-paired-client",
@@ -84,8 +78,8 @@ export class PairingManager {
     return { token, expiresAt };
   }
 
-  public authenticate(token: string): CapabilityPrincipal {
-    const key = tokenDigest(token);
+  public async authenticate(token: string): Promise<CapabilityPrincipal> {
+    const key = await tokenDigest(token);
     const session = this.sessions.get(key);
     if (!session || session.expiresAt <= this.now()) {
       this.sessions.delete(key);
@@ -99,14 +93,44 @@ export class PairingManager {
   }
 }
 
+const encoder = new TextEncoder();
+const PAIRING_CODE_RANGE = 100_000_000;
+const UINT32_RANGE = 2 ** 32;
+
 function createPairingCode(): string {
-  return randomInt(0, 100_000_000).toString().padStart(8, "0");
+  // Rejection sampling keeps the eight digits uniform.
+  const limit = UINT32_RANGE - (UINT32_RANGE % PAIRING_CODE_RANGE);
+  const buffer = new Uint32Array(1);
+  for (;;) {
+    crypto.getRandomValues(buffer);
+    const value = buffer[0] ?? limit;
+    if (value < limit) {
+      return (value % PAIRING_CODE_RANGE).toString().padStart(8, "0");
+    }
+  }
 }
 
-function tokenDigest(token: string): string {
-  return createHash("sha256").update(token, "utf8").digest("hex");
+function createSessionToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/gu, "-")
+    .replace(/\//gu, "_")
+    .replace(/=+$/u, "");
 }
 
-function digest(value: string): Buffer {
-  return createHash("sha256").update(value, "utf8").digest();
+async function tokenDigest(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(token));
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
+  let difference = left.length ^ right.length;
+  for (let index = 0; index < right.length; index += 1) {
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return difference === 0;
 }

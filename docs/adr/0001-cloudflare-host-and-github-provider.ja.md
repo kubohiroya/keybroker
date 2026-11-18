@@ -1,6 +1,6 @@
 # ADR 0001: Cloudflare ホストと、GitHub・ide-gsm の provider を keybroker に加える
 
-- **状態:** Proposed
+- **状態:** Accepted
 - **日付:** 2026-11-18
 
 ## 背景

@@ -46,7 +46,7 @@ describe("relay app", () => {
     expect(health.status).toBe(200);
     await expect(health.json()).resolves.toEqual({
       status: "ok",
-      service: "capability-proxy",
+      service: "keybroker",
     });
 
     const denied = await app.request("http://attacker.example/health");

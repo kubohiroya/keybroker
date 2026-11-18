@@ -10,7 +10,7 @@ async function main(): Promise<void> {
     configArgument >= 0 ? process.argv[configArgument + 1] : undefined;
   if (help || !configPath || configPath.startsWith("-")) {
     process.stdout.write(
-      "Usage: capability-proxy --config <config.json>\n\n" +
+      "Usage: keybroker --config <config.json>\n\n" +
         "The config file contains provider secrets and must have mode 0600.\n",
     );
     process.exitCode = help ? 0 : 2;

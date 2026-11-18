@@ -1,4 +1,4 @@
-# @kubohiroya/capability-proxy
+# @kubohiroya/keybroker
 
 A localhost-first relay that exposes named capabilities without giving provider credentials to clients. Providers implement the Candy House SESAME Web API and minting of OpenAI Realtime API ephemeral client secrets.
 
