@@ -5,5 +5,11 @@
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["tests", "dist", "node_modules"]
+  "exclude": [
+    "tests",
+    "dist",
+    "node_modules",
+    "src/cloudflare",
+    "src/providers/github"
+  ]
 }

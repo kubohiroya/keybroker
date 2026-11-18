@@ -1,0 +1,47 @@
+# keybroker on Cloudflare: one Worker serves the GitHub login, repository
+# creation, publication and Git relay routes. Copy to wrangler.toml (ignored by
+# Git), replace the placeholders, set the secrets below, and deploy with
+# `pnpm deploy:cloudflare`. Keep one copy per deployment (for example
+# keybroker-dev and keybroker-prod), each with its own GitHub App and secrets.
+# See docs/github/git-smart-http.md#enable-and-roll-back.
+name = "keybroker-dev"
+main = "src/cloudflare/worker.ts"
+compatibility_date = "2025-06-28"
+
+[[durable_objects.bindings]]
+name = "GIT_SESSIONS"
+class_name = "GitSession"
+
+[[durable_objects.bindings]]
+name = "GIT_REPOSITORY_CREATION"
+class_name = "GitRepositoryCreation"
+
+[[durable_objects.bindings]]
+name = "GIT_PUBLICATION_JOBS"
+class_name = "GitHubPublication"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GitSession", "GitRepositoryCreation", "GitHubPublication"]
+
+[vars]
+# Exact origins of the Editor deployments, comma-separated. Never `*`.
+GIT_ALLOWED_ORIGINS = "https://your-editor-origin.example,tw-editor://."
+# The exact HTTPS origin of this Worker, also the Editor's TW_PLUS_GIT_BFF_ORIGIN
+# and TW_PLUS_GIT_PROXY_ORIGIN.
+GIT_PROXY_ORIGIN = "https://keybroker-dev.<account-subdomain>.workers.dev"
+GIT_GITHUB_CLIENT_ID = "<GitHub App client ID>"
+GIT_GITHUB_REDIRECT_URI = "https://keybroker-dev.<account-subdomain>.workers.dev/v1/git-auth/callback"
+GIT_GITHUB_API = "pulls-read,review-threads,reviews-body"
+# Optional. Leave empty to keep the publication routes off.
+GIT_PUBLICATION = ""
+# Optional repository creation. Unavailable until these and its secrets are set.
+GIT_CREATE_CLIENT_ID = ""
+GIT_CREATE_REDIRECT_URI = ""
+
+# Secrets (wrangler secret put, entered by the operator):
+# - GIT_GITHUB_CLIENT_SECRET
+# - GIT_SESSION_KEY          32 random bytes as 64 hex digits
+# - GIT_CREATE_CLIENT_SECRET (optional)
+# - GIT_CREATE_SESSION_KEY   (optional) 32 random bytes as 64 hex digits
+

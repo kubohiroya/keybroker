@@ -1,0 +1,19 @@
+# GitHub publication from TurboWarp Plus Editor
+
+The Cloudflare BFF can run an explicitly approved publication job for a repository verified by a normal Git write session. The job is journaled by immutable GitHub account ID, repository ID and Editor origin. Only fixed GitHub calls from the Editor Git package's publication engine can advance it. The Git Worker still serves the existing Git Smart HTTP and read-only PR routes.
+
+## Approval and execution
+
+The Editor requests a one-time approval URL, valid for ten minutes. Its first page shows a generic GitHub sign-in prompt. A fresh GitHub App authorization verifies the same numeric account and repository. A browser-only cookie binds the callback to the initiating browser. The BFF then displays the exact repository, head and base commits, PR text, optional stack parent, issue action, and merge options. A separate **Approve** action authorizes the journaled job for eight hours. The Editor can request a new approval URL for the same job and unchanged intent after interruption or expiry.
+
+The job checks the remote refs and waits for the Editor to push the recorded commit to its job-owned branch. GitHub API steps verify the session, repository and approved publication, and the journal records an in-flight mutation before sending. After an uncertain response the engine checks GitHub for the earlier outcome. Automatic merge waits for verified CI and review conditions. It uses GitHub's asynchronous merge API with an expected head SHA and branch protection enforced. The base and diff are rechecked immediately before submission. GitHub exposes no expected-base SHA precondition for the background merge, so a base change after submission is governed by GitHub's repository rules. [GitHub asynchronous merge API](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request-asynchronously)
+
+## Test deployment
+
+The keybroker Worker (`src/cloudflare/worker.ts`) wires `GitHubPublication` to the Editor Git package's `./pull-request-queue` and `./github-publication-host` entries; keybroker pins the published package version. `wrangler.toml.template` registers `GitHubPublication` as a SQLite Durable Object bound as `GIT_PUBLICATION_JOBS` alongside `GIT_SESSIONS`. Retain the normal Git App callback and `GIT_ALLOWED_ORIGINS`.
+
+Set `GIT_PUBLICATION=pulls-read,pulls-write` to enable PR creation. Add `checks-read,merge` to allow CI-gated merge, `issues-read,issues-write` to allow creating and closing issues, and `stacks` when GitHub supports native PR stacks on the test repository. The GitHub App installation needs **Contents: Write** for Git push and merge, **Pull requests: Write** for creating PRs and stacks, **Checks: Read** and **Commit statuses: Read** for CI, and **Issues: Read** or **Issues: Write** for the corresponding issue operations. The signed-in user needs matching repository access. [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)
+
+For verification, use a disposable repository with a required check. Save and commit a test project, open the PR dialog, and verify that a different GitHub account cannot unlock the approval preview. Return with the same account and check the displayed repository and commits before approving. Verify the job-owned branch and PR on GitHub. Confirm that the job waits for the check, and then verifies the merge before closing an explicitly selected issue. For a native stack, select an open PR at the top of the stack and check that GitHub records the child relationship. Clear `GIT_PUBLICATION` to disable the publication routes. Keep the job records for reconciliation.
+
+For local tests against the shared engine, set `TW_PUBLICATION_ENGINE_PREVIEW_DIST` to the reviewed package's built `dist` and run `vitest run tests/github/gitHubPublication.test.ts`. The fixture mocks GitHub responses.
