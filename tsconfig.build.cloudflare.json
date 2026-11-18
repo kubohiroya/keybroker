@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.cloudflare.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": [
+    "src/core/**/*.ts",
+    "src/providers/github/**/*.ts",
+    "src/cloudflare/**/*.ts"
+  ],
+  "exclude": ["tests", "dist", "node_modules"]
+}

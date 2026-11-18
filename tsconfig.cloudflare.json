@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types", "node", "vitest/globals"],
+    "exactOptionalPropertyTypes": false
+  },
+  "include": [
+    "src/core/**/*.ts",
+    "src/providers/github/**/*.ts",
+    "src/cloudflare/**/*.ts",
+    "tests/github/**/*.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}

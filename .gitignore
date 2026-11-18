@@ -6,3 +6,5 @@ coverage/
 config.local.json
 .capability-proxy/
 .keybroker/
+wrangler.toml
+.wrangler/

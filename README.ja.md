@@ -205,6 +205,12 @@ pnpm check
 
 Relayプロセスを停止すれば、すべてのローカルセッションが直ちに失効します。TurboWarp-SesameはDirect modeへ戻せます。設定ファイルと資格情報は自動削除しません。発行済みのOpenAIエフェメラルキーは、Relay停止後も`expiresAt`まで有効です。
 
+## Cloudflare ホスト
+
+`@kubohiroya/keybroker/cloudflare` は、TurboWarp Plus Editor のための GitHub の経路を提供する Cloudflare Worker です。GitHub App でのログインとサーバー側でのトークンの保管、Git Smart HTTP の中継、決まった PR とレビューの呼び出し、リポジトリの作成、承認された公開を扱います。トークンは Durable Object の中で暗号化して保管し、ブラウザーには期限が短くリポジトリに限った Bearer だけを渡します。`wrangler.toml.template` をコピーし、秘密の値を設定して `pnpm deploy:cloudflare` で配備します。詳しくは [docs/github](docs/github/README.md) を参照してください。
+
+入口は `@kubohiroya/keybroker`（core と provider）、`@kubohiroya/keybroker/node`（localhost のリレー）、`@kubohiroya/keybroker/cloudflare`（Worker と Durable Object）の三つです。
+
 ## ライセンスと由来
 
 MPL-2.0。Candy HouseクライアントとAES-CMACの初期実装は、同じ著作者による`@kubohiroya/turbowarp-sesame`のMPL-2.0実装を基に分離しています。

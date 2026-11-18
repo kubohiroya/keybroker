@@ -71,6 +71,12 @@ Security notes: the long-lived key stays inside the relay; browsers only receive
 
 See [README.ja.md](README.ja.md) for setup, API documentation, the security model, and rollback instructions.
 
+## Cloudflare host
+
+`@kubohiroya/keybroker/cloudflare` is a Cloudflare Worker that serves GitHub routes for TurboWarp Plus Editor: GitHub App login with server-side token custody, Git Smart HTTP relay, fixed pull request and review calls, repository creation and approved publication. Tokens stay encrypted in Durable Objects; the browser only holds short-lived, repository-scoped Bearers. Copy `wrangler.toml.template`, set the secrets, and run `pnpm deploy:cloudflare`. See [docs/github](docs/github/README.md).
+
+Entry points: `@kubohiroya/keybroker` (core and providers), `@kubohiroya/keybroker/node` (the localhost relay) and `@kubohiroya/keybroker/cloudflare` (the Worker and its Durable Objects).
+
 ## Development
 
 ```sh
