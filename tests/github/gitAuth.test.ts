@@ -73,7 +73,7 @@ function fixture() {
       });
     }
     if (input.endsWith("/user"))
-      return Response.json({ login: "fixture-user" });
+      return Response.json({ id: 1, login: "fixture-user" });
     if (input.endsWith("/owner/project"))
       return Response.json({
         id: 42,
@@ -109,6 +109,55 @@ afterEach(() => {
 });
 
 describe("GitHub App BFF session", () => {
+  it("preserves the GitHub user ID across rename and rejects a different actor after token rotation", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    for (const changedId of [false, true]) {
+      const { env, call, send } = fixture();
+      const original = send.getMockImplementation()!;
+      let actor = { id: 1, login: "fixture-user" };
+      send.mockImplementation(async (input, init) =>
+        input.endsWith("/user") ? Response.json(actor) : original(input, init),
+      );
+      const started = await (
+        await call("/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ remote: github, write: false }),
+        })
+      ).json();
+      const state = new URL(started.authorizationUrl).searchParams.get(
+        "state",
+      )!;
+      await call("/callback?code=fixture-code&state=" + state);
+      const headers = { Authorization: "Bearer " + started.ticket };
+      const session = await (await call("/session", { headers })).json();
+      expect(session.account.id).toBe(1);
+      actor = { id: changedId ? 99 : 1, login: "renamed-user" };
+      vi.setSystemTime(Date.now() + 61000);
+      const stub = env.GIT_SESSIONS!.get(env.GIT_SESSIONS!.idFromName(state));
+      const result = await stub.fetch(
+        "https://git-session.internal/authorize",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            credential: session.bearer.split(".")[1],
+            origin: editor,
+            owner: "owner",
+            repo: "project",
+            write: false,
+          }),
+        },
+      );
+      expect(result.status).toBe(changedId ? 401 : 200);
+      const current = await call("/session", { headers });
+      if (changedId) expect(current.status).toBe(401);
+      else
+        expect((await current.json()).account).toEqual({
+          id: 1,
+          login: "renamed-user",
+        });
+    }
+  });
   it("consumes OAuth state once, encrypts provider credentials, scopes the lease and revokes it", async () => {
     const { env, call, records, send } = fixture();
     const start = await call("/start", {
@@ -138,7 +187,7 @@ describe("GitHub App BFF session", () => {
     const result = await response.json();
     expect(result).toMatchObject({
       connection: { mode: "cloudflare", proxyOrigin: proxy },
-      account: { login: "fixture-user" },
+      account: { id: 1, login: "fixture-user" },
     });
     expect(result).not.toHaveProperty("repositoryId");
     expect(result.bearer).not.toBe(ticket);

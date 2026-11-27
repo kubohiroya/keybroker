@@ -250,7 +250,7 @@ function fixture() {
         refresh_token_expires_in: 7200,
       });
     if (input === "https://api.github.com/user")
-      return Response.json({ login: "fixture-user" });
+      return Response.json({ id: 1, login: "fixture-user" });
     if (input === "https://api.github.com/graphql") {
       const body = JSON.parse(String(init?.body));
       return graphql(body.query, body.variables);
