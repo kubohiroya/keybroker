@@ -102,6 +102,11 @@ type GitHubAuthorization = Repository & {
   reviewId?: string;
   submit?: SubmitRequest;
 };
+type RenameRequest = Repository & {
+  credential: string;
+  origin: string;
+  name: string;
+};
 type SubmitState =
   | "starting"
   | "threading"
@@ -567,6 +572,11 @@ export class GitSession {
           return Response.json(await this.authorizeGitHub(value, config));
         return Response.json(await this.authorize(value, config));
       }
+      if (path === "/rename") {
+        return Response.json(
+          await this.rename(await request.json<RenameRequest>(), config),
+        );
+      }
       if (path === "/review-result") {
         return Response.json(
           await this.reviewResult(await request.json<ReviewResult>()),
@@ -963,6 +973,189 @@ export class GitSession {
     };
   }
 
+  /**
+   * Renames the session's repository with the fixed `PATCH /repos/{owner}/{repo}` request that
+   * sends only `name`, after checking the repository ID and the user's admin role, and binds the
+   * session to the new name. A retry after an unknown outcome finds the repository under the new
+   * name with the same ID and completes without renaming again.
+   */
+  private async rename(value: RenameRequest, config: Settings) {
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Object.keys(value).sort().join(",") !==
+        "credential,name,origin,owner,repo" ||
+      typeof value.name !== "string" ||
+      !validRepository(value.owner, value.repo) ||
+      !validRepository(value.owner, value.name) ||
+      value.name.length > 100 ||
+      value.name.toLowerCase().endsWith(".git")
+    )
+      return gitError(400, "BAD_REQUEST");
+    const record = await this.state.storage.get<Record>(recordKey);
+    if (
+      !record ||
+      record.phase !== "active" ||
+      record.origin !== value.origin ||
+      typeof value.credential !== "string" ||
+      !keyPattern.test(value.credential)
+    )
+      return gitError(401, "SESSION_REQUIRED");
+    const credentials = await this.readCredentials(record, config);
+    if (credentials.proxySecret !== value.credential)
+      return gitError(401, "SESSION_REQUIRED");
+    if (record.expiresAt <= Date.now()) return gitError(401, "SESSION_EXPIRED");
+    if (!sameRepository(value, record.remote) || record.write !== true)
+      return gitError(403, "FORBIDDEN");
+
+    const usable =
+      credentials.accessExpiresAt > Date.now()
+        ? credentials
+        : await this.refresh(credentials, config);
+    const wanted = { owner: record.canonical.owner, repo: value.name };
+    let target: Repository & { id: number };
+    try {
+      target = await this.lookup(
+        record.canonical,
+        "admin",
+        usable.accessToken,
+        true,
+      );
+    } catch (error) {
+      // The old name no longer resolves (GitHub answers it with a redirect): a previous
+      // attempt whose outcome was unknown may have renamed it already.
+      if (
+        !(error instanceof GitAuthError) ||
+        (error.status !== 403 && error.status !== 502)
+      )
+        throw error;
+      const renamed = await this.lookup(
+        wanted,
+        "admin",
+        usable.accessToken,
+        true,
+      ).catch(() => null);
+      if (renamed?.id !== record.canonical.id) throw error;
+      target = renamed;
+    }
+    if (target.id !== record.canonical.id) return gitError(403, "FORBIDDEN");
+    const renamed =
+      target.repo === value.name
+        ? target
+        : await this.patchName(target, value.name, usable.accessToken);
+    if (renamed.id !== record.canonical.id || !sameRepository(renamed, wanted))
+      return gitError(502, "UPSTREAM_FAILURE");
+    await this.state.storage.transaction(async (tx) => {
+      const latest = await tx.get<Record>(recordKey);
+      if (latest?.phase !== "active") return gitError(401, "SESSION_REQUIRED");
+      if (
+        (await this.readCredentials(latest, config)).proxySecret !==
+        value.credential
+      )
+        return gitError(401, "SESSION_REQUIRED");
+      const name = { owner: renamed.owner, repo: renamed.repo };
+      await tx.put(recordKey, {
+        ...latest,
+        remote: name,
+        canonical: { ...name, id: renamed.id },
+      });
+    });
+    return {
+      owner: renamed.owner,
+      repo: renamed.repo,
+      repositoryId: renamed.id,
+    };
+  }
+
+  /** Sends the fixed rename request. Nothing but `name` reaches GitHub. */
+  private async patchName(
+    target: Repository,
+    name: string,
+    accessToken: string,
+  ): Promise<Repository & { id: number }> {
+    let response: Response;
+    try {
+      response = await fetch(
+        "https://api.github.com/repos/" + target.owner + "/" + target.repo,
+        {
+          method: "PATCH",
+          redirect: "manual",
+          signal: AbortSignal.timeout(15_000),
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: "Bearer " + accessToken,
+            "Content-Type": "application/json",
+            "User-Agent": "HierarchiDB-Git",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+          body: JSON.stringify({ name }),
+        },
+      );
+    } catch {
+      // The request may have reached GitHub; a retry completes it by the repository ID.
+      return gitError(504, "UPSTREAM_TIMEOUT");
+    }
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return gitError(409, "REDIRECT_REJECTED");
+    }
+    if (response.status === 401) {
+      await response.body?.cancel();
+      return gitError(401, "REAUTH_REQUIRED");
+    }
+    if (
+      response.status === 429 ||
+      (response.status === 403 &&
+        (response.headers.get("x-ratelimit-remaining") === "0" ||
+          response.headers.has("retry-after")))
+    ) {
+      await response.body?.cancel();
+      throw new GitAuthError(
+        429,
+        "RATE_LIMITED",
+        retryAfterSeconds(response.headers),
+      );
+    }
+    // The user's admin role was checked, so a refusal means the GitHub App lacks the
+    // repository permission Administration: Read and write in this installation.
+    if (response.status === 403) {
+      await response.body?.cancel();
+      return gitError(403, "ADMINISTRATION_PERMISSION_REQUIRED");
+    }
+    if (response.status === 404) {
+      await response.body?.cancel();
+      return gitError(403, "FORBIDDEN");
+    }
+    // GitHub answers 422 when the owner already has a repository with this name.
+    if (response.status === 422) {
+      await response.body?.cancel();
+      return gitError(409, "REPOSITORY_NAME_UNAVAILABLE");
+    }
+    if (response.status !== 200) {
+      await response.body?.cancel();
+      return gitError(
+        response.status === 504 ? 504 : 502,
+        response.status === 504 ? "UPSTREAM_TIMEOUT" : "UPSTREAM_FAILURE",
+      );
+    }
+    const result = await response
+      .json<{ id?: unknown; full_name?: unknown }>()
+      .catch(() => null);
+    const full =
+      result &&
+      typeof result.full_name === "string" &&
+      parseGitRemote("https://github.com/" + result.full_name);
+    if (
+      !result ||
+      !full ||
+      typeof result.id !== "number" ||
+      !Number.isSafeInteger(result.id) ||
+      result.id <= 0
+    )
+      return gitError(502, "UPSTREAM_FAILURE");
+    return { ...full, id: result.id };
+  }
+
   /** Records the upstream outcome of the step that the Worker reserved with `/authorize`. */
   private async reviewResult(
     value: ReviewResult,
@@ -1167,7 +1360,7 @@ export class GitSession {
     login?: string;
     id?: number;
     full_name?: string;
-    permissions?: { pull?: boolean; push?: boolean };
+    permissions?: { pull?: boolean; push?: boolean; admin?: boolean };
   }> {
     const response = await fetch("https://api.github.com" + path, {
       redirect: "manual",
@@ -1203,7 +1396,7 @@ export class GitSession {
 
   private async lookup(
     remote: Repository,
-    write: boolean,
+    write: boolean | "admin",
     accessToken: string,
     rateLimit = false,
   ): Promise<Repository & { id: number }> {
@@ -1223,7 +1416,11 @@ export class GitSession {
       typeof result.id !== "number" ||
       !Number.isSafeInteger(result.id) ||
       result.id <= 0 ||
-      (write ? result.permissions?.push : result.permissions?.pull) !== true
+      (write === "admin"
+        ? result.permissions?.admin
+        : write
+          ? result.permissions?.push
+          : result.permissions?.pull) !== true
     )
       return gitError(403, "FORBIDDEN");
     return { ...name, id: result.id };

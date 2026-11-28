@@ -32,7 +32,7 @@ GIT_ALLOWED_ORIGINS = "https://your-editor-origin.example,tw-editor://."
 GIT_PROXY_ORIGIN = "https://keybroker-dev.<account-subdomain>.workers.dev"
 GIT_GITHUB_CLIENT_ID = "<GitHub App client ID>"
 GIT_GITHUB_REDIRECT_URI = "https://keybroker-dev.<account-subdomain>.workers.dev/v1/git-auth/callback"
-GIT_GITHUB_API = "pulls-read,review-threads,reviews-body"
+GIT_GITHUB_API = "pulls-read,review-threads,reviews-body,repository-rename"
 # Optional. Leave empty to keep the publication routes off.
 GIT_PUBLICATION = ""
 # Optional repository creation. Unavailable until these and its secrets are set.

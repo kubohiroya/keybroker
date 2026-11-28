@@ -37,16 +37,33 @@ Git 専用の経路は、`GET /v1/git/<owner>/<repo>.git/info/refs?service=git-u
 
 この節は、[TurboWarp Plus Editor #444](https://github.com/kubohiroya/turbowarp-plus-editor/issues/444)（[hierarchidb #1757](https://github.com/kubohiroya/hierarchidb/issues/1757)）の段階 A を実装します。Git Worker は、決まった一連のプルリクエストとレビューの呼び出しを、`/v1/github/<owner>/<repo>/` の下で GitHub に中継します。プルリクエストの中身は Git Smart HTTP で扱います。これらの経路は、任意の URL も、クライアントの GraphQL ドキュメントも転送しません。変更ファイルの一覧、ファイルの中身や比較、行コメント、単独の REST コメント、プルリクエストの作成・マージ・クローズは中継しません。
 
-| 経路                                | 上流                                                                                            | クエリーまたは操作                                                                                                                                       | 権限（許可） | `GIT_GITHUB_API` |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ---------------- |
-| `GET /pulls`                        | `GET /repos/{owner}/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=20&page=<page>` | `page` は 1–50、1 回まで                                                                                                                                 | read         | `pulls-read`     |
-| `GET /pulls/<n>`                    | `GET /repos/{owner}/{repo}/pulls/{n}`（`application/vnd.github.text+json`）                     | なし                                                                                                                                                     | read         | `pulls-read`     |
-| `GET /pulls/<n>/publication-status` | 公開状態を調べる決まったクエリーで `POST https://api.github.com/graphql`                        | なし                                                                                                                                                     | read         | `checks-read`    |
-| `POST /graphql/<operation>`         | 決まったドキュメントで `POST https://api.github.com/graphql`                                    | `pullRequestReviewContext`（read）、`addPullRequestReview`、`addPullRequestReviewThread`、`submitPullRequestReview`、`deletePullRequestReview`（review） | 操作ごと     | `review-threads` |
-| `GET /pulls/<n>/reviews`            | `GET /repos/{owner}/{repo}/pulls/{n}/reviews?per_page=30&page=<page>`                           | `page` は 1–10、1 回まで                                                                                                                                 | read         | `reviews-body`   |
-| `POST /pulls/<n>/reviews`           | `POST /repos/{owner}/{repo}/pulls/{n}/reviews`                                                  | なし                                                                                                                                                     | review       | `reviews-body`   |
+| 経路                                | 上流                                                                                            | クエリーまたは操作                                                                                                                                       | 権限（許可） | `GIT_GITHUB_API`    |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ------------------- |
+| `GET /pulls`                        | `GET /repos/{owner}/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=20&page=<page>` | `page` は 1–50、1 回まで                                                                                                                                 | read         | `pulls-read`        |
+| `GET /pulls/<n>`                    | `GET /repos/{owner}/{repo}/pulls/{n}`（`application/vnd.github.text+json`）                     | なし                                                                                                                                                     | read         | `pulls-read`        |
+| `GET /pulls/<n>/publication-status` | 公開状態を調べる決まったクエリーで `POST https://api.github.com/graphql`                        | なし                                                                                                                                                     | read         | `checks-read`       |
+| `POST /graphql/<operation>`         | 決まったドキュメントで `POST https://api.github.com/graphql`                                    | `pullRequestReviewContext`（read）、`addPullRequestReview`、`addPullRequestReviewThread`、`submitPullRequestReview`、`deletePullRequestReview`（review） | 操作ごと     | `review-threads`    |
+| `GET /pulls/<n>/reviews`            | `GET /repos/{owner}/{repo}/pulls/{n}/reviews?per_page=30&page=<page>`                           | `page` は 1–10、1 回まで                                                                                                                                 | read         | `reviews-body`      |
+| `POST /pulls/<n>/reviews`           | `POST /repos/{owner}/{repo}/pulls/{n}/reviews`                                                  | なし                                                                                                                                                     | review       | `reviews-body`      |
+| `POST /name`                        | `{"name"}` だけで `PATCH /repos/{owner}/{repo}`                                                 | [リポジトリの改名](#リポジトリの改名) を参照                                                                                                             | write、admin | `repository-rename` |
 
 `<owner>` と `<repo>` は、Git の経路と同じ規則に従いますが、`.git` の接尾辞は付けません。`<n>` は 1–2,147,483,647 で、先頭に 0 を付けません。これ以外のメソッド、パス、クエリー、繰り返したクエリー、ページ、操作は、セッションにも GitHub にも問い合わせる前に `400 BAD_REQUEST` を返します。`GIT_GITHUB_API` にない経路のグループは `404 GITHUB_API_UNAVAILABLE` を返します。この変数に未知の値や重複した値があると、すべての経路が `500 GITHUB_API_MISCONFIGURED` で失敗します。`reviews-body` の経路は、`review-threads` がオフのときに、レビューの本文だけを送る代わりの手段です。
+
+### リポジトリの改名
+
+`POST /v1/github/<owner>/<repo>/name` は、セッションのリポジトリの名前を変えます（[TurboWarp Plus Editor #681](https://github.com/kubohiroya/turbowarp-plus-editor/issues/681)）。`GIT_GITHUB_API` の `repository-rename` で有効にします。本文はちょうど `{"name":"<新しい名前>"}` だけです。名前は GitHub の規則（英数字・`-`・`_`・`.`、100 文字まで、`.` と `..` は不可、末尾の `.git` は不可）に従います。これ以外は、セッションにも GitHub にも問い合わせる前に `400 BAD_REQUEST` を返します。
+
+セッション（`GitSession` の `/rename`）は、オリジン、期限、リポジトリ名を確かめ、書き込みのログインを求めます（ないときは `403 FORBIDDEN`）。正規の名前でリポジトリを調べ、セッションのリポジトリ ID と `permissions.admin`（利用者自身の管理者の役割。ないときは `403 FORBIDDEN`）を求めてから、決まった一つの要求 `PATCH /repos/{owner}/{repo}` を、本文 `{"name": …}` だけで送ります。成功すると、セッションは新しい名前に結び付き直します。同じログインのまま新しい名前が使え、古い名前は断られます。応答は `{"owner","repo","repositoryId"}` です。クライアントはこのあと `origin` を書き換えます。
+
+| 結果                                               | 応答                                                                                                       |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| GitHub が `403` で断った                           | `403 ADMINISTRATION_PERMISSION_REQUIRED`。インストール先が Administration: Read and write を承認していない |
+| GitHub が `422` を返した（名前が既に使われている） | `409 REPOSITORY_NAME_UNAVAILABLE`                                                                          |
+| リダイレクト                                       | `409 REDIRECT_REJECTED`                                                                                    |
+| レート制限                                         | `429 RATE_LIMITED`（`retryAfter` 付き）                                                                    |
+| 接続が切れた、または時間切れ                       | `504 UPSTREAM_TIMEOUT`。結果は分からない                                                                   |
+
+結果が分からなかったあとに同じ名前でやり直すと、二度目の改名をせずに完了します。古い名前が引けなくなっていれば、セッションは新しい名前を調べ、それがセッションのリポジトリ ID を持っていれば受け入れます。この経路に保存記録のマイグレーションは要りません。セッションの記録の既存の `remote` と `canonical` を書き換えます。
 
 ### 検証の順番
 
@@ -176,6 +193,6 @@ keybroker は、ログインと Git の中継を、1 つの Cloudflare Worker `s
 
 `GIT_GITHUB_CLIENT_ID` と `GIT_GITHUB_CLIENT_SECRET` を与える GitHub App の作り方は、[github-app-setup.ja.md](./github-app-setup.ja.md) で説明しています。
 
-GitHub API の経路を有効にするには、`GIT_GITHUB_API` を設定します。例: `pulls-read,review-threads,reviews-body`。GitHub App には、リポジトリの権限 Pull requests: Read and write も必要で、それぞれのインストールで承認されている必要があります。`review` は既存の `GitSession` の保存記録に加わる新しいフィールドで、`review-ids` と `review-submits` は新しいキーです。そのため、Durable Object のマイグレーションは要りません。
+GitHub API の経路を有効にするには、`GIT_GITHUB_API` を設定します。例: `pulls-read,review-threads,reviews-body`。GitHub App には、リポジトリの権限 Pull requests: Read and write も必要で、それぞれのインストールで承認されている必要があります。`repository-rename` には Administration: Read and write も要ります。ないときは改名の経路だけが `403 ADMINISTRATION_PERMISSION_REQUIRED` を返し、ほかの経路はそのまま使えます。`review` は既存の `GitSession` の保存記録に加わる新しいフィールドで、`review-ids` と `review-submits` は新しいキーです。そのため、Durable Object のマイグレーションは要りません。
 
 切り戻すには、Git の経路のバインディングを外し、影響を受けるセッションの記録を取り消します。リポジトリ作成と公開の経路は、それぞれ自分の設定を保ちます。`GIT_GITHUB_API` から `review-threads` を外すと GraphQL の経路だけが止まり、`reviews-body` が残っていれば、クライアントはレビュー本文の経路に切り替えます。変数そのものを外すと、GitHub API の経路はすべて止まります。Git の経路、ログイン、セッションの記録には影響しません。`review-ids` と `review-submits` は、ログインと一緒に期限切れになります。切り戻しの間に GitHub に残った保留中のレビューは、書いた本人にしか見えず、本人がプルリクエストのページで破棄できます。
