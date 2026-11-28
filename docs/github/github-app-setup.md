@@ -35,13 +35,14 @@ Create the App in GitHub under **Settings → Developer settings → GitHub Apps
 
 ### Repository permissions
 
-| Permission    | Value          | Used by                                                             |
-| ------------- | -------------- | ------------------------------------------------------------------- |
-| Contents      | Read and write | fetch and pull (read), push (write)                                 |
-| Pull requests | Read and write | Pull request list, title and body (read), review submission (write) |
-| Metadata      | Read-only      | Added automatically; used to check the repository ID                |
+| Permission     | Value          | Used by                                                                             |
+| -------------- | -------------- | ----------------------------------------------------------------------------------- |
+| Contents       | Read and write | fetch and pull (read), push (write)                                                 |
+| Pull requests  | Read and write | Pull request list, title and body (read), review submission (write)                 |
+| Metadata       | Read-only      | Added automatically; used to check the repository ID                                |
+| Administration | Read and write | Optional. Renaming the repository when the project is renamed (`repository-rename`) |
 
-Grant no other permission, including account and organization permissions. Without review support, Pull requests can be omitted; GitHub then refuses only the pull request routes, and the Git routes keep working.
+Grant no other permission, including account and organization permissions. Administration is needed only for the rename route; without it GitHub refuses only the rename, and the Editor tells the user to approve the permission on the installation (Settings → Applications → Installed GitHub Apps → Configure, or the organization's Settings → GitHub Apps). Without review support, Pull requests can be omitted; GitHub then refuses only the pull request routes, and the Git routes keep working.
 
 A permission added later stays unapplied on each installation until that account approves it. [Modifying a GitHub App registration](https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration)
 
@@ -71,10 +72,11 @@ Configure the Git Worker's variables (`GIT_ALLOWED_ORIGINS`, `GIT_PROXY_ORIGIN`,
 
 ## Troubleshooting
 
-| Symptom                                                   | Cause                                                                                 | Fix                                                                    |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Connecting fails right after authorization                | Expire user authorization tokens is off, so no refresh token is returned              | Turn it on                                                             |
-| GitHub shows a `redirect_uri` error                       | The Callback URL and `GIT_GITHUB_REDIRECT_URI` differ                                 | Set both to the same value                                             |
-| The repository is not found or access is denied           | The App is not installed on that repository                                           | Install the App and select the repository                              |
-| Pull requests can be read but reviews cannot be submitted | Pull requests is Read-only, or the installation has not approved the added permission | Set Pull requests to Read and write and approve it on the installation |
-| Desktop login does not start                              | Device Flow is off, or Desktop has no client ID                                       | Turn on Device Flow and give Desktop the client ID                     |
+| Symptom                                                                                    | Cause                                                                                 | Fix                                                                     |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Connecting fails right after authorization                                                 | Expire user authorization tokens is off, so no refresh token is returned              | Turn it on                                                              |
+| GitHub shows a `redirect_uri` error                                                        | The Callback URL and `GIT_GITHUB_REDIRECT_URI` differ                                 | Set both to the same value                                              |
+| The repository is not found or access is denied                                            | The App is not installed on that repository                                           | Install the App and select the repository                               |
+| Renaming the project does not rename the repository (`ADMINISTRATION_PERMISSION_REQUIRED`) | Administration is not set, or the installation has not approved the added permission  | Set Administration to Read and write and approve it on the installation |
+| Pull requests can be read but reviews cannot be submitted                                  | Pull requests is Read-only, or the installation has not approved the added permission | Set Pull requests to Read and write and approve it on the installation  |
+| Desktop login does not start                                                               | Device Flow is off, or Desktop has no client ID                                       | Turn on Device Flow and give Desktop the client ID                      |

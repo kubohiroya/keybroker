@@ -35,13 +35,14 @@ GitHub の **Settings → Developer settings → GitHub Apps → New GitHub App*
 
 ### リポジトリの権限（Repository permissions）
 
-| 権限          | 値             | 使う機能                                               |
-| ------------- | -------------- | ------------------------------------------------------ |
-| Contents      | Read and write | fetch と pull（read）、push（write）                   |
-| Pull requests | Read and write | PR の一覧・題名・本文（read）、レビューの送信（write） |
-| Metadata      | Read-only      | 自動で付く。リポジトリ ID の照合に使う                 |
+| 権限           | 値             | 使う機能                                                            |
+| -------------- | -------------- | ------------------------------------------------------------------- |
+| Contents       | Read and write | fetch と pull（read）、push（write）                                |
+| Pull requests  | Read and write | PR の一覧・題名・本文（read）、レビューの送信（write）              |
+| Metadata       | Read-only      | 自動で付く。リポジトリ ID の照合に使う                              |
+| Administration | Read and write | 任意。作品名の変更に合わせたリポジトリの改名（`repository-rename`） |
 
-ほかの権限は付けません。アカウントと組織の権限（Account permissions、Organization permissions）も付けません。レビューの機能を使わないなら、Pull requests は付けなくてかまいません。その場合は PR の経路だけが GitHub に断られ、Git の経路はそのまま使えます。
+ほかの権限は付けません。アカウントと組織の権限（Account permissions、Organization permissions）も付けません。Administration は改名の経路だけに使います。付けないときは改名だけが GitHub に断られ、Editor はインストール先で権限を承認するよう案内します（Settings → Applications → Installed GitHub Apps → Configure、組織では組織の Settings → GitHub Apps）。レビューの機能を使わないなら、Pull requests は付けなくてかまいません。その場合は PR の経路だけが GitHub に断られ、Git の経路はそのまま使えます。
 
 あとから足した権限は、インストールした各アカウントが承認するまで、そのインストールには反映されません。 [GitHub App の登録の変更](https://docs.github.com/ja/apps/maintaining-github-apps/modifying-a-github-app-registration)
 
@@ -71,10 +72,11 @@ Git Worker の変数（`GIT_ALLOWED_ORIGINS`、`GIT_PROXY_ORIGIN`、`GIT_GITHUB_
 
 ## うまくいかないとき
 
-| 症状                                               | 原因                                                                         | 直し方                                                         |
-| -------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| 認可の直後に接続が失敗する                         | Expire user authorization tokens がオフで、更新用のトークンが返らない        | オンにする                                                     |
-| GitHub の画面に `redirect_uri` のエラーが出る      | Callback URL と `GIT_GITHUB_REDIRECT_URI` が一致していない                   | 両方を同じ値にする                                             |
-| リポジトリが見つからない、またはアクセスを断られる | そのリポジトリに App がインストールされていない                              | App をインストールし、そのリポジトリを選ぶ                     |
-| PR は読めるのに、レビューを送れない                | Pull requests が Read-only、またはインストール先で権限の追加を承認していない | Pull requests を Read and write にし、インストール先で承認する |
-| Desktop でログインが始まらない                     | Device Flow がオフ、または Desktop に Client ID が渡っていない               | Device Flow をオンにし、Desktop に Client ID を渡す            |
+| 症状                                                                             | 原因                                                                         | 直し方                                                          |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 認可の直後に接続が失敗する                                                       | Expire user authorization tokens がオフで、更新用のトークンが返らない        | オンにする                                                      |
+| GitHub の画面に `redirect_uri` のエラーが出る                                    | Callback URL と `GIT_GITHUB_REDIRECT_URI` が一致していない                   | 両方を同じ値にする                                              |
+| リポジトリが見つからない、またはアクセスを断られる                               | そのリポジトリに App がインストールされていない                              | App をインストールし、そのリポジトリを選ぶ                      |
+| 作品名を変えてもリポジトリ名が変わらない（`ADMINISTRATION_PERMISSION_REQUIRED`） | Administration がない、またはインストール先で権限の追加を承認していない      | Administration を Read and write にし、インストール先で承認する |
+| PR は読めるのに、レビューを送れない                                              | Pull requests が Read-only、またはインストール先で権限の追加を承認していない | Pull requests を Read and write にし、インストール先で承認する  |
+| Desktop でログインが始まらない                                                   | Device Flow がオフ、または Desktop に Client ID が渡っていない               | Device Flow をオンにし、Desktop に Client ID を渡す             |

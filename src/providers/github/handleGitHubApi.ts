@@ -15,6 +15,7 @@ const kib = 1024;
 const mib = 1024 * kib;
 const maxBodyLength = 65_536;
 const maxPathBytes = 1024;
+const maxRepositoryNameLength = 100;
 const maxPullRequestNumber = 2_147_483_647;
 const submitIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -24,12 +25,13 @@ const attemptPattern = /^[A-Za-z0-9_-]{43}$/u;
 const ownerPattern = /^[A-Za-z0-9][A-Za-z0-9-]*$/u;
 const repoPattern = /^[A-Za-z0-9_.-]+$/u;
 const pathPattern =
-  /^\/v1\/github\/([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9_.-]+)\/(?:(pulls)|pulls\/([1-9][0-9]{0,9})|pulls\/([1-9][0-9]{0,9})\/(reviews|publication-status)|graphql\/([A-Za-z]+))$/u;
+  /^\/v1\/github\/([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9_.-]+)\/(?:(pulls)|pulls\/([1-9][0-9]{0,9})|pulls\/([1-9][0-9]{0,9})\/(reviews|publication-status)|graphql\/([A-Za-z]+)|(name))$/u;
 const features = [
   "pulls-read",
   "review-threads",
   "reviews-body",
   "checks-read",
+  "repository-rename",
 ] as const;
 const events = ["COMMENT", "APPROVE", "REQUEST_CHANGES"] as const;
 const pullStates = ["OPEN", "CLOSED", "MERGED"] as const;
@@ -75,7 +77,8 @@ type PathMatch = {
     | { kind: "pull"; number: number }
     | { kind: "publication-status"; number: number }
     | { kind: "reviews"; number: number }
-    | { kind: "graphql"; operation: string };
+    | { kind: "graphql"; operation: string }
+    | { kind: "name" };
 };
 type Route =
   | { kind: "pulls"; page: number }
@@ -83,7 +86,8 @@ type Route =
   | { kind: "publication-status"; number: number }
   | { kind: "reviews"; number: number; page: number }
   | { kind: "create-review"; number: number }
-  | { kind: "graphql"; operation: GitHubReviewOperation };
+  | { kind: "graphql"; operation: GitHubReviewOperation }
+  | { kind: "rename" };
 type SubmitStep = "start" | "thread" | "submit" | "delete" | "context";
 const submitStates = [
   "starting",
@@ -207,7 +211,8 @@ function parseFeatures(
 function matchPath(path: string): PathMatch | null {
   const match = pathPattern.exec(path);
   if (!match || match[0] !== path) return null;
-  const [, owner, repo, pulls, pull, suffixNumber, suffix, operation] = match;
+  const [, owner, repo, pulls, pull, suffixNumber, suffix, operation, name] =
+    match;
   // The GitHub API names a repository without the `.git` suffix of the Git routes.
   if (
     !owner ||
@@ -252,6 +257,13 @@ function matchPath(path: string): PathMatch | null {
       feature: "review-threads",
       target: { kind: "graphql", operation },
     };
+  if (name)
+    return {
+      owner,
+      repo,
+      feature: "repository-rename",
+      target: { kind: "name" },
+    };
   return null;
 }
 
@@ -275,6 +287,8 @@ function resolveRoute(
   }
   if (target.kind === "pull" || target.kind === "publication-status")
     return method === "GET" && search === "" ? target : null;
+  if (target.kind === "name")
+    return method === "POST" && search === "" ? { kind: "rename" } : null;
   if (target.kind === "reviews") {
     if (method === "POST")
       return search === ""
@@ -847,6 +861,87 @@ async function reportResult(
   return { state: value.state as SubmitState, threads: value.threads };
 }
 
+/**
+ * Validates the body of a rename request: exactly one `name` that GitHub accepts as a
+ * repository name (letters, digits, `-`, `_` and `.`, up to 100 characters, not `.` or `..`
+ * and without the `.git` suffix).
+ */
+function validateRepositoryName(input: Json): string | null {
+  const { name } = input;
+  if (Object.keys(input).join(",") !== "name" || typeof name !== "string")
+    return null;
+  return isRepositoryName(name) ? name : null;
+}
+
+export function isRepositoryName(name: string): boolean {
+  return (
+    name.length <= maxRepositoryNameLength &&
+    repoPattern.test(name) &&
+    ![".", ".."].includes(name) &&
+    !name.toLowerCase().endsWith(".git")
+  );
+}
+
+/**
+ * Asks the session to rename its repository. The session checks the repository ID, renames it
+ * with the fixed `PATCH /repos/{owner}/{repo}` request that sends only `name`, and binds itself
+ * to the new name, so the client keeps the same login after rewriting its `origin`.
+ */
+async function rename(
+  stub: DurableObjectStub,
+  body: {
+    credential: string;
+    origin: string;
+    owner: string;
+    repo: string;
+    name: string;
+  },
+): Promise<{ owner: string; repo: string; repositoryId: number }> {
+  const response = await stub.fetch("https://git-session.internal/rename", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const value = await response.json<unknown>();
+  if (response.status === 200) {
+    if (
+      !isJson(value) ||
+      Object.keys(value).sort().join(",") !== "owner,repo,repositoryId" ||
+      typeof value.owner !== "string" ||
+      !ownerPattern.test(value.owner) ||
+      typeof value.repo !== "string" ||
+      !isRepositoryName(value.repo) ||
+      !isInteger(value.repositoryId, 1, Number.MAX_SAFE_INTEGER)
+    )
+      throw new ProxyError(502, "UPSTREAM_FAILURE");
+    return {
+      owner: value.owner,
+      repo: value.repo,
+      repositoryId: value.repositoryId,
+    };
+  }
+  const code = isJson(value) ? value.code : undefined;
+  const allowed: { [status: number]: string[] } = {
+    400: ["BAD_REQUEST"],
+    401: ["SESSION_REQUIRED", "SESSION_EXPIRED", "REAUTH_REQUIRED"],
+    403: ["FORBIDDEN", "ADMINISTRATION_PERMISSION_REQUIRED"],
+    409: ["REPOSITORY_NAME_UNAVAILABLE", "REDIRECT_REJECTED"],
+    429: ["RATE_LIMITED"],
+    504: ["UPSTREAM_TIMEOUT"],
+  };
+  if (typeof code === "string" && allowed[response.status]?.includes(code)) {
+    const retryAfter = isJson(value) ? value.retryAfter : undefined;
+    throw new ProxyError(
+      response.status,
+      code,
+      isInteger(retryAfter, 0, Number.MAX_SAFE_INTEGER)
+        ? retryAfter
+        : undefined,
+    );
+  }
+  throw new ProxyError(502, "UPSTREAM_FAILURE");
+}
+
 export async function handleGitHubApi(
   request: Request,
   env: GitHubEnv,
@@ -967,6 +1062,9 @@ export async function handleGitHubApi(
       ? validateVariables(route.operation, input)
       : null;
   if (route.kind === "graphql" && !variables) return fail(400, "BAD_REQUEST");
+  const newName =
+    route.kind === "rename" && input ? validateRepositoryName(input) : null;
+  if (route.kind === "rename" && !newName) return fail(400, "BAD_REQUEST");
 
   const timeout = AbortSignal.timeout(upstreamTimeout);
   const stub = env.GIT_SESSIONS.get(env.GIT_SESSIONS.idFromName(bearer[1]));
@@ -1187,6 +1285,10 @@ export async function handleGitHubApi(
     readPull(grant, number, "pullRequestReviewContext", shapeContext);
 
   try {
+    if (route.kind === "rename") {
+      if (!newName) return fail(400, "BAD_REQUEST");
+      return respond(await rename(stub, { ...session, name: newName }));
+    }
     if (route.kind === "publication-status") {
       const grant = await authorize(stub, { ...session, operation: "read" });
       return respond(
