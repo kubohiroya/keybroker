@@ -49,7 +49,7 @@ type Active = {
   ticketHash: string;
   canonical: Repository & { id: number };
   repositoryId?: number;
-  account: { login: string };
+  account: { login: string; id?: number };
   deadline: number;
   expiresAt: number;
   credentials: string;
@@ -635,7 +635,11 @@ export class GitSession {
         config,
       );
       const user = await this.github("/user", tokens.accessToken);
-      if (typeof user.login !== "string" || !user.login)
+      if (
+        typeof user.login !== "string" ||
+        !user.login ||
+        !isInteger(user.id, 1, Number.MAX_SAFE_INTEGER)
+      )
         return gitError(401, "REAUTH_REQUIRED");
       const login = user.login;
       const canonical = await this.lookup(
@@ -704,7 +708,7 @@ export class GitSession {
           ...(pending.repositoryId !== undefined && {
             repositoryId: pending.repositoryId,
           }),
-          account: { login },
+          account: { login, id: user.id as number },
           deadline,
           expiresAt,
           credentials,
@@ -899,9 +903,11 @@ export class GitSession {
       actor &&
       (!isInteger(actor.id, 1, Number.MAX_SAFE_INTEGER) ||
         typeof actor.login !== "string" ||
-        actor.login.toLowerCase() !== record.account.login.toLowerCase())
-    )
+        actor.id !== record.account.id)
+    ) {
+      await this.state.storage.delete(sessionKeys);
       return gitError(403, "FORBIDDEN");
+    }
     const reserved = await this.state.storage.transaction(async (tx) => {
       const latest = await tx.get<Record>(recordKey);
       if (latest?.phase !== "active") return gitError(401, "SESSION_REQUIRED");
@@ -1046,6 +1052,16 @@ export class GitSession {
         await this.state.storage.delete(sessionKeys);
       throw error;
     });
+    const actor = await this.github("/user", tokens.accessToken);
+    if (
+      !isInteger(actor.id, 1, Number.MAX_SAFE_INTEGER) ||
+      typeof actor.login !== "string" ||
+      !actor.login ||
+      (record.account.id !== undefined && actor.id !== record.account.id)
+    ) {
+      await this.state.storage.delete(sessionKeys);
+      return gitError(401, "REAUTH_REQUIRED");
+    }
     return this.state.storage.transaction(async (tx) => {
       const latest = await tx.get<Record>(recordKey);
       if (latest?.phase !== "active") return gitError(401, "SESSION_REQUIRED");
@@ -1053,6 +1069,7 @@ export class GitSession {
       const updated = { ...tokens, proxySecret: current.proxySecret };
       await tx.put(recordKey, {
         ...latest,
+        account: { id: actor.id as number, login: actor.login as string },
         credentials: await encrypt(
           JSON.stringify(updated),
           await this.encryptionKey(config),
